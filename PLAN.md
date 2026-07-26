@@ -241,7 +241,7 @@ src/types.ts
 tests/
 ```
 
-This file is intentionally the child repository’s first committed artifact.
+This file is the authoritative pre-implementation artifact and precedes all package implementation commits.
 
 The package should be independently installable. It must declare all of its own runtime, peer, and development dependencies. It must not rely on undeclared root-workspace dependencies.
 
