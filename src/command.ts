@@ -35,15 +35,20 @@ function usage(ctx: {
 }
 
 // Use a two-choice selector with No first so the initial default is No.
-// Select the UI helper object (which exposes `select` directly), not the full
-// command context. Options are ["No", "Yes"] so the initial selection is No;
-// confirmation requires a deliberate move to Yes.
+// `ctx.ui.select()` only renders its `title` argument, so the explanatory body
+// is folded into that title to keep the authority warning visibly on screen at
+// the moment of choice. Options are ["No", "Yes"] so the initial selection is
+// No; confirmation requires a deliberate move to Yes.
 async function confirmYes(
   ui: { select(title: string, options: string[]): Promise<string | undefined> },
   title: string,
-  _body: string,
+  body: string,
 ): Promise<boolean> {
-  const choice = await ui.select(title, ["No", "Yes"]);
+  const choice = await ui.select(
+    `${title}
+${body}`,
+    ["No", "Yes"],
+  );
   // "No" (first/default) or cancellation both leave the state unchanged.
   return choice === "Yes";
 }

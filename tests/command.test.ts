@@ -111,6 +111,17 @@ describe("/session-manager command", () => {
     expect(ctx.ui.selects[0]?.options).toEqual(["No", "Yes"]);
   });
 
+  it("on confirm prompt visibly warns of authority and force termination", async () => {
+    const handler = getCommand(commands);
+    const ctx = createCommandContext({ nextSelect: undefined });
+    await handler("on", ctx);
+    const prompt = ctx.ui.selects[0]?.title ?? "";
+    // The authority/force-termination warning must be visible in the selector.
+    expect(prompt).toContain("visibility");
+    expect(prompt).toMatch(/force[- ]?termination|force termination/i);
+    expect(ctx.ui.selects[0]?.options).toEqual(["No", "Yes"]);
+  });
+
   it("on enables authorization when the user deliberately selects Yes", async () => {
     const handler = getCommand(commands);
     const ctx = createCommandContext({ nextSelect: "Yes" });

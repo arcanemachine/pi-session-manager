@@ -45,7 +45,7 @@ describe("tool registration", () => {
       expect(typeof tool.promptSnippet).toBe("string");
       expect(tool.promptSnippet!.length).toBeGreaterThan(0);
       expect(Array.isArray(tool.promptGuidelines)).toBe(true);
-      expect(tool.promptGuidelines!.length).toBeGreaterThan(0);
+      expect(tool.promptGuidelines!.length).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -54,6 +54,23 @@ describe("tool registration", () => {
       for (const bullet of TOOL_GUIDELINES[name]) {
         expect(bullet).toContain(name);
       }
+    }
+  });
+
+  it("every tool carries static disabled-result guidance: do not retry, do not enable, wait for the user", () => {
+    for (const name of EXPECTED_TOOLS) {
+      const bullets = TOOL_GUIDELINES[name];
+      const disabledBullet = bullets.find((b) =>
+        b.includes("reports Session Manager is disabled"),
+      );
+      expect(
+        disabledBullet,
+        `${name} missing disabled-result guidance`,
+      ).toBeDefined();
+      expect(disabledBullet).toContain(name);
+      expect(disabledBullet).toMatch(/do not retry/);
+      expect(disabledBullet).toMatch(/do not attempt to enable it yourself/);
+      expect(disabledBullet).toMatch(/wait for the user/);
     }
   });
 
