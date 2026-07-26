@@ -1,0 +1,56 @@
+{
+  "name": "pi-session-manager",
+  "version": "0.1.0",
+  "description": "Pi extension hosting fleets of interactive Pi TUI processes in a dedicated tmux server",
+  "type": "module",
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "extension",
+    "tmux",
+    "session",
+    "fleet",
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" AGENTS.md README.md CHANGELOG.md LICENSE.md package.json tsconfig.json",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" AGENTS.md README.md CHANGELOG.md LICENSE.md package.json tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "author": "Nicholas Moen",
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE.md"
+  ],
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@types/node": "^25.3.0",
+    "prettier": "^3.8.3",
+    "typebox": "1.1.38",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
+}

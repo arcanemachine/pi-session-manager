@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+pnpm-debug.log*
+# Local standalone-install lockfile; workspace lockfile lives at the superproject root
+pnpm-lock.yaml
