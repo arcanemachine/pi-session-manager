@@ -1,12 +1,36 @@
 ---
 title: Pi Session Manager V1
-status: execution-ready
+status: execution-in-progress
 artifact_type: implementation-plan
 scope: standalone Pi extension package
-implementation_authority: requires explicit assignment to execute
+implementation_authority: task-by-task user authorization
+current_task: Task 2 — Tmux adapter and inventory
+current_owner: pi-session-manager-worker
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
+
+## Execution state and advancement protocol
+
+This section is the durable coordination record for execution across sessions. The Architect/coordinator owns it and must keep it synchronized with reviewed work.
+
+### Current state
+
+- **Task 1 — Package foundation and authorization:** Accepted after implementation, review, correction, and package-local verification.
+- **Task 2 — Tmux adapter and inventory:** In progress. Assigned to `pi-session-manager-worker`.
+- **Tasks 3–7:** Not started.
+- **Outstanding Task 1 live verification:** Real-TUI `/reload` authorization retention and separately spawned-process default-disabled behavior remain deferred to the mandatory live acceptance stage. They were not claimed as completed by Task 1 unit tests.
+
+### Advancement protocol
+
+1. Dispatch only the current authorized task.
+2. Review the worker’s implementation and verification evidence against this plan.
+3. Return substantial corrections to the same worker; the Architect/coordinator may make only minor corrections directly.
+4. After accepting a task, update this section to mark it accepted, record any explicitly deferred verification, and leave the next task not started. Commit that plan advancement in the child repository, then commit the updated submodule pointer in the superproject.
+5. Report acceptance to the user and wait for explicit permission to begin the next task.
+6. When permission arrives, update this section and frontmatter to mark the next task in progress and name its owner. Commit child-first and then the superproject pointer before dispatching the task.
+7. Never mark a task accepted merely because the worker reported completion; acceptance follows Architect/coordinator review.
+8. Keep this section concise. Detailed requirements and completion criteria remain authoritative in the task sections below.
 
 ## 1. Purpose and authority
 
