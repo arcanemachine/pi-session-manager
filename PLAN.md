@@ -1,11 +1,11 @@
 ---
 title: Pi Session Manager V1
-status: execution-in-progress
+status: execution-awaiting-task-authorization
 artifact_type: implementation-plan
 scope: standalone Pi extension package
 implementation_authority: task-by-task user authorization
-current_task: Task 5 — Close and force-close tools
-current_owner: pi-session-manager-worker
+current_task: Task 6 — Documentation and superproject integration (prepared; not started)
+current_owner: unassigned
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
@@ -20,12 +20,14 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 2 — Tmux adapter and inventory:** Accepted after implementation, Architect/coordinator review, and independent package-local verification (format check, typecheck, 37 tests, and diff check).
 - **Task 3 — Create tool:** Accepted after implementation, Architect/coordinator review, and independent package-local verification (format check, typecheck, 43 tests, and diff check).
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local verification (format check, typecheck, 51 tests, and diff check).
-- **Task 5 — Close and force-close tools:** In progress. Assigned to the reset `pi-session-manager-worker` with explicit user authorization.
-- **Tasks 6–7:** Not started.
+- **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local verification (format check, typecheck, 57 tests, and diff check), and correction of stale package status text introduced by completed Tasks 2–5.
+- **Task 6 — Documentation and superproject integration:** Prepared; not started. Dispatch requires the user’s explicit approval after confirming that `pi-session-manager-worker` has been reset.
+- **Task 7:** Not started.
 - **Outstanding Task 1 live verification:** Real-TUI `/reload` authorization retention and separately spawned-process default-disabled behavior remain deferred to the mandatory live acceptance stage. They were not claimed as completed by Task 1 unit tests.
 - **Outstanding Task 2 live verification:** Full end-to-end fleet inventory remains subject to the mandatory live acceptance stage. Task 2’s hermetic tmux tests cover its adapter/inventory foundation only.
 - **Outstanding Task 3 live verification:** Creation with a real normal Pi TUI, user tmux attachment, batched individual create calls, and immediate-exit behavior in the complete extension remain deferred to the mandatory live acceptance stage. Task 3’s hermetic tests use a non-public fixture executable only.
 - **Outstanding Task 4 live verification:** Capture behavior for a real normal Pi full-screen TUI, retained dead panes, bounded live output, and no focus change remains subject to the mandatory live acceptance stage. Task 4’s hermetic tmux fixtures verify the bounded fallback behavior but do not replace user observation.
+- **Outstanding Task 5 live verification:** Dead-only close, explicit live force-close, attached-human protection, and final-session disappearance with real normal Pi workers remain subject to the mandatory live acceptance stage. Task 5’s hermetic tmux fixtures verify the enforcement paths but do not replace user observation.
 
 ### Advancement protocol
 

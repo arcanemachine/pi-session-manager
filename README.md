@@ -18,14 +18,13 @@ dependency on inter-agent, role, snapshot, or subagent packages.
 
 ## Status
 
-V1 in progress. This package currently implements the foundation and
-authorization layer (Task 1): package metadata, the `/session-manager` command,
-and five always-registered authorization-gated tool skeletons. Tmux behavior and
-real tool behavior arrive in later tasks.
+V1 implementation is in progress. Tasks 1–5 implement the package foundation,
+authorization gate, dedicated tmux adapter, and all five fleet tools. Root
+integration, final documentation, and mandatory live user acceptance remain.
 
 ## Requirements
 
-- tmux 3.5 or newer (introduced in later tasks; not used yet by the foundation).
+- tmux 3.5 or newer.
 
 ## Installation
 

@@ -40,8 +40,9 @@ import {
  * promptGuidelines are static metadata that must NOT change when the
  * authorization Boolean toggles (PLAN.md section 5.4).
  *
- * Task 3 implements pi_fleet_create. The other four tools remain authorized
- * skeletons until their assigned tasks implement their tmux behavior.
+ * Tasks 3–5 implement all five tool behaviors. The tools share the same
+ * authorization gate and static metadata while keeping their responsibilities
+ * intentionally narrow.
  */
 
 const FLEET_DESCRIPTION =

@@ -8,8 +8,9 @@ import { registerTools } from "./tools.js";
  *
  * Hosts fleets of normal interactive Pi TUI processes in a dedicated tmux
  * server. The `/session-manager on|off|status` command and five
- * always-registered authorization-gated tools are registered here. Task 3
- * implements creation; the remaining tool behavior arrives in later tasks.
+ * always-registered authorization-gated tools are registered here. Tasks 1–5
+ * implement authorization, tmux hosting, observation, creation, and window
+ * removal; package integration and live acceptance remain later work.
  *
  * All five tools are registered unconditionally and remain active regardless of
  * authorization (PLAN.md section 5.4); tool schemas and prompt metadata never

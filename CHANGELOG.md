@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-Initial package foundation and authorization layer (Task 1).
+V1 implementation in progress through Task 5.
 
 - Pi extension `pi-session-manager` registered via `pi.extensions`.
 - `/session-manager on|off|status` user command with default-No confirmation
@@ -18,5 +18,13 @@ Initial package foundation and authorization layer (Task 1).
 - Focused unit tests for authorization lifetime, command parsing/default-No,
   and stable tool registration.
 
-Tmux behavior and real tool behavior are deliberately not implemented yet; they
-arrive in later tasks.
+- Dedicated explicit-socket tmux adapter with V1 ownership tags, strict
+  inventory, normal direct Pi launch, bounded plain-text capture, and no
+  default-server mutation.
+- Functional `pi_fleet_create`, `pi_fleet_list`, and `pi_fleet_view` tools.
+- Functional dead-only `pi_fleet_close` and guarded live-process
+  `pi_fleet_force_close` tools, including stable-ID revalidation and protection
+  for actively viewed human windows.
+
+Root integration, final package documentation, and mandatory live user
+acceptance remain before V1 completion.
