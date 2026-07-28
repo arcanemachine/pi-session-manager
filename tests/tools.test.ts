@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import {
   MAX_PI_ARGS,
   MAX_PI_ARGS_BYTES,
+  listFleets,
   registerTools,
   SEQUENTIAL_TOOLS,
   TOOL_GUIDELINES,
@@ -17,6 +18,7 @@ import {
   TOOL_VIEW,
 } from "../src/constants.js";
 import { ErrorCode, SessionManagerError } from "../src/errors.js";
+import { TmuxAdapter } from "../src/tmux.js";
 import { createFakePi } from "./fake-pi.js";
 
 const EXPECTED_TOOLS = [
@@ -89,7 +91,8 @@ describe("tool registration", () => {
     }
   });
 
-  it("every disabled tool denies before doing anything, as a failed tool result", async () => {
+  it("every disabled tool denies before any tmux inspection, as a failed tool result", async () => {
+    const inventory = vi.spyOn(TmuxAdapter.prototype, "inventory");
     const fake = createFakePi();
     registerTools(fake.pi);
     for (const tool of fake.tools) {
@@ -99,13 +102,17 @@ describe("tool registration", () => {
         code: ErrorCode.SESSION_MANAGER_DISABLED,
       });
     }
+    expect(inventory).not.toHaveBeenCalled();
+    inventory.mockRestore();
   });
 
-  it("keeps the four unassigned tools as skeletons while create validates its assigned contract", async () => {
+  it("keeps close and force-close as skeletons while list/view and create implement their assigned contracts", async () => {
     setAuthorized(true);
     const fake = createFakePi();
     registerTools(fake.pi);
-    for (const tool of fake.tools.filter((tool) => tool.name !== TOOL_CREATE)) {
+    for (const tool of fake.tools.filter(
+      (tool) => tool.name === TOOL_CLOSE || tool.name === TOOL_FORCE_CLOSE,
+    )) {
       await expect(
         tool.execute("id", {} as never, undefined, undefined, {} as never),
       ).rejects.toMatchObject({
@@ -122,6 +129,15 @@ describe("tool registration", () => {
     });
   });
 
+  it("validates the optional list fleet filter before inspecting tmux", async () => {
+    const inventory = vi.spyOn(TmuxAdapter.prototype, "inventory");
+    await expect(listFleets({ fleet: "Alpha" })).rejects.toMatchObject({
+      code: ErrorCode.INVALID_FLEET,
+    });
+    expect(inventory).not.toHaveBeenCalled();
+    inventory.mockRestore();
+  });
+
   it("kept authorization is reflected by the disabled->authorized transition", async () => {
     const fake = createFakePi();
     registerTools(fake.pi);
@@ -134,8 +150,8 @@ describe("tool registration", () => {
     setAuthorized(true);
     await expect(
       list.execute("id", {} as never, undefined, undefined, {} as never),
-    ).rejects.toMatchObject({
-      code: ErrorCode.NOT_IMPLEMENTED,
+    ).resolves.toMatchObject({
+      details: { serverPresent: false, fleets: [] },
     });
   });
 

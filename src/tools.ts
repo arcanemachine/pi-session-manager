@@ -1,6 +1,12 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import {
+  DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
+  truncateHead,
+  truncateTail,
+} from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -14,6 +20,7 @@ import type {
   CreatedTmuxInstance,
   CreatedWindowCleanup,
   ManagedInstance,
+  TmuxInventory,
 } from "./types.js";
 import {
   FLEET_PATTERN,
@@ -45,6 +52,20 @@ const INSTANCE_DESCRIPTION =
 export const MAX_PI_ARGS = 128;
 export const MAX_PI_ARGS_BYTES = 64 * 1024;
 const FLEET_NAME_RE = new RegExp(FLEET_PATTERN);
+const DEFAULT_VIEW_LINES = 100;
+const MAX_VIEW_LINES = 500;
+// Reserve space for a clear truncation notice below Pi's 50 KiB output ceiling.
+const MAX_VIEW_TEXT_BYTES = 48 * 1024;
+
+export interface ListFleetInput {
+  readonly fleet?: string;
+}
+
+export interface ViewFleetInput {
+  readonly fleet: string;
+  readonly instance: number;
+  readonly lines?: number;
+}
 
 export interface CreateFleetInput {
   readonly fleet: string;
@@ -130,9 +151,9 @@ export function registerTools(pi: ExtensionAPI): void {
         Type.String({ description: "Optional fleet filter." }),
       ),
     }),
-    async execute() {
+    async execute(_toolCallId, params, signal) {
       requireAuthorization();
-      return notImplemented(TOOL_LIST);
+      return listFleets(params, signal);
     },
   });
 
@@ -155,9 +176,9 @@ export function registerTools(pi: ExtensionAPI): void {
         }),
       ),
     }),
-    async execute() {
+    async execute(_toolCallId, params, signal) {
       requireAuthorization();
-      return notImplemented(TOOL_VIEW);
+      return viewFleet(params, signal);
     },
   });
 
@@ -233,6 +254,219 @@ export function registerTools(pi: ExtensionAPI): void {
       return notImplemented(TOOL_FORCE_CLOSE);
     },
   });
+}
+
+/** List exact V1-managed tmux objects, optionally for one validated fleet. */
+export async function listFleets(
+  input: ListFleetInput,
+  signal?: AbortSignal,
+  adapter = new TmuxAdapter(),
+) {
+  const fleet = validateOptionalFleet(input.fleet);
+  const inventory = await adapter.inventory(signal);
+  const fleets = fleet
+    ? inventory.fleets.filter((candidate) => candidate.name === fleet)
+    : inventory.fleets;
+  const output = truncateHead(renderFleetList(inventory, fleets), {
+    maxLines: DEFAULT_MAX_LINES,
+    maxBytes: DEFAULT_MAX_BYTES - 256,
+  });
+  const text = output.truncated
+    ? `${output.content}\n\n[Fleet list truncated to the safe tool-output limit.]`
+    : output.content;
+  return {
+    content: [{ type: "text" as const, text }],
+    details: {
+      serverPresent: inventory.serverPresent,
+      ...(fleet === undefined ? {} : { filter: fleet }),
+      fleets,
+      warningCount: inventory.warnings.length,
+      warnings: inventory.warnings,
+      outputTruncated: output.truncated,
+    },
+  };
+}
+
+/** Return a bounded observational terminal capture for one exact managed pane. */
+export async function viewFleet(
+  input: ViewFleetInput,
+  signal?: AbortSignal,
+  adapter = new TmuxAdapter(),
+) {
+  const fleet = validateRequiredFleet(input.fleet);
+  const instance = validateInstance(input.instance);
+  const lines = validateViewLines(input.lines);
+  const inventory = await adapter.inventory(signal);
+  const managed = inventory.fleets
+    .find((candidate) => candidate.name === fleet)
+    ?.instances.find((candidate) => candidate.instance === instance);
+  if (!managed) {
+    throwViewLookupError(inventory, fleet, instance);
+  }
+
+  const { instance: revalidated, capture } =
+    await adapter.captureManagedInstance(managed, lines, signal);
+  const output = truncateTail(capture.text, {
+    maxLines: Math.min(lines, DEFAULT_MAX_LINES),
+    maxBytes: Math.min(MAX_VIEW_TEXT_BYTES, DEFAULT_MAX_BYTES),
+  });
+  const truncated = capture.captureTruncated || output.truncated;
+  let text = output.content || "(No terminal text captured.)";
+  if (truncated) {
+    text +=
+      "\n\n[Terminal view truncated to the requested or safe output limit.]";
+  }
+  if (capture.usedPrimaryFallback) {
+    text +=
+      "\n\n[tmux returned an empty alternate-screen capture, so this view uses the bounded primary-screen fallback.]";
+  } else if (revalidated.state === "exited" && !capture.alternateScreen) {
+    text +=
+      "\n\n[Captured the retained primary screen. A full-screen application's former alternate screen is unavailable after exit.]";
+  }
+
+  return {
+    content: [{ type: "text" as const, text }],
+    details: {
+      ...revalidated,
+      requestedLines: lines,
+      capturedAlternateScreen: capture.alternateScreen,
+      alternateScreenActive: capture.alternateScreenActive,
+      usedPrimaryFallback: capture.usedPrimaryFallback,
+      captureTruncated: capture.captureTruncated,
+      outputTruncated: output.truncated,
+    },
+  };
+}
+
+function validateOptionalFleet(fleet: unknown): string | undefined {
+  if (fleet === undefined) return undefined;
+  return validateRequiredFleet(fleet);
+}
+
+function validateRequiredFleet(fleet: unknown): string {
+  if (typeof fleet !== "string" || !FLEET_NAME_RE.test(fleet)) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_FLEET,
+      "fleet must match [a-z0-9][a-z0-9_-]{0,63}.",
+    );
+  }
+  return fleet;
+}
+
+function validateInstance(instance: unknown): number {
+  if (!Number.isSafeInteger(instance) || (instance as number) < 1) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_INSTANCE,
+      "instance must be a positive safe integer.",
+    );
+  }
+  return instance as number;
+}
+
+function validateViewLines(lines: unknown): number {
+  if (lines === undefined) return DEFAULT_VIEW_LINES;
+  if (
+    !Number.isSafeInteger(lines) ||
+    (lines as number) < 1 ||
+    (lines as number) > MAX_VIEW_LINES
+  ) {
+    throw new SessionManagerError(
+      ErrorCode.CAPTURE_FAILED,
+      `lines must be a positive safe integer from 1 to ${MAX_VIEW_LINES}.`,
+    );
+  }
+  return lines as number;
+}
+
+function renderFleetList(
+  inventory: TmuxInventory,
+  fleets: readonly {
+    readonly name: string;
+    readonly instances: readonly ManagedInstance[];
+  }[],
+): string {
+  const lines: string[] = [];
+  if (!inventory.serverPresent) {
+    lines.push("No managed fleets: the dedicated tmux server is absent.");
+  } else if (fleets.length === 0) {
+    lines.push("No managed fleets found.");
+  } else {
+    for (const fleet of fleets) {
+      const instances = fleet.instances
+        .map((instance) => `${instance.instance} ${instance.state}`)
+        .join(", ");
+      lines.push(`${fleet.name}: ${instances || "no managed instances"}`);
+    }
+  }
+  if (inventory.warnings.length > 0) {
+    lines.push(
+      `Warnings (${inventory.warnings.length}): managed-looking tmux objects require manual handling.`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function throwViewLookupError(
+  inventory: TmuxInventory,
+  fleet: string,
+  instance: number,
+): never {
+  if (
+    !inventory.serverPresent ||
+    !inventory.fleets.some((candidate) => candidate.name === fleet)
+  ) {
+    const warning = inventory.warnings.find(
+      (candidate) =>
+        candidate.sessionName === fleet &&
+        (candidate.windowIndex === undefined ||
+          candidate.windowIndex === instance),
+    );
+    if (warning?.code === "AMBIGUOUS_WINDOW") {
+      throw new SessionManagerError(
+        ErrorCode.AMBIGUOUS_WINDOW,
+        `Fleet ${fleet} instance ${instance} is structurally ambiguous and cannot be viewed.`,
+      );
+    }
+    if (warning?.code === "UNSUPPORTED_TAG_VERSION") {
+      throw new SessionManagerError(
+        ErrorCode.UNSUPPORTED_TAG_VERSION,
+        `Fleet ${fleet} is not an exact V1-managed fleet.`,
+      );
+    }
+    if (warning) {
+      throw new SessionManagerError(
+        ErrorCode.UNMANAGED_TARGET,
+        `Fleet ${fleet} instance ${instance} is not an exact V1-managed target.`,
+      );
+    }
+    throw new SessionManagerError(
+      ErrorCode.FLEET_NOT_FOUND,
+      `Managed fleet ${fleet} was not found.`,
+    );
+  }
+
+  const warning = inventory.warnings.find(
+    (candidate) =>
+      candidate.sessionName === fleet && candidate.windowIndex === instance,
+  );
+  if (warning?.code === "AMBIGUOUS_WINDOW") {
+    throw new SessionManagerError(
+      ErrorCode.AMBIGUOUS_WINDOW,
+      `Fleet ${fleet} instance ${instance} is structurally ambiguous and cannot be viewed.`,
+    );
+  }
+  if (warning) {
+    throw new SessionManagerError(
+      warning.code === "UNSUPPORTED_TAG_VERSION"
+        ? ErrorCode.UNSUPPORTED_TAG_VERSION
+        : ErrorCode.UNMANAGED_TARGET,
+      `Fleet ${fleet} instance ${instance} is not an exact V1-managed target.`,
+    );
+  }
+  throw new SessionManagerError(
+    ErrorCode.INSTANCE_NOT_FOUND,
+    `Managed instance ${instance} was not found in fleet ${fleet}.`,
+  );
 }
 
 export async function validateCreateFleetInput(

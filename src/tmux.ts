@@ -7,6 +7,7 @@ import { constants as fsConstants } from "node:fs";
 import { FLEET_PATTERN } from "./constants.js";
 import { ErrorCode, SessionManagerError } from "./errors.js";
 import type {
+  CapturedManagedInstance,
   CreatedTmuxInstance,
   CreatedWindowCleanup,
   FleetInspection,
@@ -15,6 +16,7 @@ import type {
   InventoryWarningCode,
   ManagedFleet,
   ManagedInstance,
+  PaneCapture,
   SessionManagerPaths,
   TmuxClient,
   TmuxInventory,
@@ -38,6 +40,7 @@ const CREATED_INSTANCE_FORMAT = "#{session_id}\t#{window_id}\t#{pane_id}";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
+const CAPTURE_MAX_OUTPUT_BYTES = 512 * 1024;
 const SESSION_ID_PATTERN = /^\$\d+$/;
 const WINDOW_ID_PATTERN = /^@\d+$/;
 const PANE_ID_PATTERN = /^%\d+$/;
@@ -338,6 +341,127 @@ export class TmuxAdapter {
     );
   }
 
+  /**
+   * Revalidate a managed instance, then capture only its stable pane ID.
+   * This reads terminal state without selecting, attaching, or changing clients.
+   */
+  async captureManagedInstance(
+    expected: ManagedInstance,
+    lines: number,
+    signal?: AbortSignal,
+  ): Promise<CapturedManagedInstance> {
+    const inventory = await this.inventory(signal);
+    const current = inventory.fleets
+      .find((fleet) => fleet.name === expected.fleet)
+      ?.instances.find((instance) => instance.instance === expected.instance);
+    if (
+      !current ||
+      current.sessionId !== expected.sessionId ||
+      current.windowId !== expected.windowId ||
+      current.paneId !== expected.paneId
+    ) {
+      throw new SessionManagerError(
+        ErrorCode.IDENTITY_CHANGED,
+        "Managed instance identity changed before terminal capture.",
+      );
+    }
+    return {
+      instance: current,
+      capture: await this.capturePane(current.paneId, lines, signal),
+    };
+  }
+
+  /**
+   * Capture a stable pane without entering copy mode or emitting terminal escape
+   * styling. Live alternate screens are captured when present; retained panes
+   * without one fall back to their primary screen.
+   */
+  async capturePane(
+    paneId: string,
+    lines: number,
+    signal?: AbortSignal,
+  ): Promise<PaneCapture> {
+    if (!PANE_ID_PATTERN.test(paneId)) {
+      throw new SessionManagerError(
+        ErrorCode.CAPTURE_FAILED,
+        `Refusing to capture invalid stable pane ID ${JSON.stringify(paneId)}.`,
+      );
+    }
+    if (!Number.isSafeInteger(lines) || lines < 1) {
+      throw new SessionManagerError(
+        ErrorCode.CAPTURE_FAILED,
+        "Terminal capture line count must be a positive safe integer.",
+      );
+    }
+
+    try {
+      const alternateResult = await this.runServerCommandRaw(
+        ["display-message", "-p", "-t", paneId, "#{alternate_on}"],
+        signal,
+      );
+      this.throwForProcessFailure(
+        alternateResult,
+        "checking pane screen state",
+      );
+      const alternateScreenActive = parseAlternateScreen(
+        alternateResult.stdout,
+      );
+      const capture = async (alternateScreen: boolean): Promise<string[]> => {
+        const captureResult = await this.runServerCommandRaw(
+          [
+            "capture-pane",
+            "-p",
+            "-J",
+            ...(alternateScreen ? ["-a"] : []),
+            "-S",
+            `-${lines}`,
+            "-E",
+            "-",
+            "-t",
+            paneId,
+          ],
+          signal,
+          CAPTURE_MAX_OUTPUT_BYTES,
+        );
+        this.throwForProcessFailure(captureResult, "capturing managed pane");
+        const capturedLines = splitCapturedLines(
+          stripTerminalEscapes(captureResult.stdout),
+        );
+        while (capturedLines.at(-1) === "") capturedLines.pop();
+        return capturedLines;
+      };
+      const alternateLines = alternateScreenActive ? await capture(true) : [];
+      const useAlternate = alternateLines.some((line) => line.trim() !== "");
+      const capturedLines = useAlternate
+        ? alternateLines
+        : await capture(false);
+      const captureTruncated = capturedLines.length > lines;
+      return {
+        paneId,
+        text: capturedLines.slice(-lines).join("\n"),
+        alternateScreen: useAlternate,
+        alternateScreenActive,
+        usedPrimaryFallback: alternateScreenActive && !useAlternate,
+        captureTruncated,
+      };
+    } catch (error) {
+      if (
+        error instanceof SessionManagerError &&
+        error.code === ErrorCode.CAPTURE_FAILED
+      ) {
+        throw error;
+      }
+      const detail =
+        error instanceof Error
+          ? truncateDiagnostic(error.message)
+          : "unknown tmux capture failure";
+      throw new SessionManagerError(
+        ErrorCode.CAPTURE_FAILED,
+        `Unable to capture managed pane ${paneId}: ${detail}`,
+      );
+    }
+  }
+
   /** Inspect one exact fleet name without treating an untagged session as managed. */
   async inspectFleet(
     fleet: string,
@@ -616,13 +740,14 @@ export class TmuxAdapter {
   private async runServerCommandRaw(
     args: string[],
     signal?: AbortSignal,
+    maxOutputBytes = this.maxOutputBytes,
   ): Promise<ProcessResult> {
     const executable = await this.resolveExecutable();
     return runProcess(executable, ["-S", this.paths.socketPath, ...args], {
       environment: this.environment,
       signal,
       timeoutMs: this.timeoutMs,
-      maxOutputBytes: this.maxOutputBytes,
+      maxOutputBytes,
     });
   }
 
@@ -1052,6 +1177,33 @@ function parseClients(output: string): TmuxClient[] {
     name,
     sessionName,
   }));
+}
+
+function parseAlternateScreen(output: string): boolean {
+  const value = output.trim();
+  if (value === "0") return false;
+  if (value === "1") return true;
+  throw new SessionManagerError(
+    ErrorCode.CAPTURE_FAILED,
+    `tmux returned an invalid alternate-screen state ${JSON.stringify(value)}.`,
+  );
+}
+
+function splitCapturedLines(output: string): string[] {
+  if (output === "") return [];
+  const withoutTransportNewline = output.endsWith("\n")
+    ? output.slice(0, -1)
+    : output;
+  return withoutTransportNewline.split("\n");
+}
+
+/** Strip any control styling tmux did not already omit from a plain capture. */
+function stripTerminalEscapes(value: string): string {
+  return value
+    .replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001b[()][0-2AB]/g, "")
+    .replace(/\r/g, "");
 }
 
 function parseRecords(

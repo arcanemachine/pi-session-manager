@@ -17,7 +17,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ErrorCode } from "../src/errors.js";
-import { createFleetInstance } from "../src/tools.js";
+import { createFleetInstance, listFleets, viewFleet } from "../src/tools.js";
 import {
   FLEET_VERSION_TAG,
   INSTANCE_TAG,
@@ -424,6 +424,183 @@ describe("TmuxAdapter hermetic integration", () => {
       viewedByUser: true,
       activeViewerCount: 1,
     });
+  });
+});
+
+describe("TmuxAdapter list and view integration", () => {
+  it("lists an absent dedicated server as an empty successful inventory", async () => {
+    fixture = await createFixture();
+    const result = await listFleets(
+      {},
+      undefined,
+      new TmuxAdapter({ agentDir: fixture.agentDir }),
+    );
+
+    expect(result.content[0]?.text).toContain(
+      "dedicated tmux server is absent",
+    );
+    expect(result.details).toMatchObject({
+      serverPresent: false,
+      fleets: [],
+      warningCount: 0,
+    });
+  });
+
+  it("lists only exact managed inventory and reports ambiguous managed-looking windows as warnings", async () => {
+    fixture = await createFixture();
+    const expected = await createManagedFixture();
+    await tmux(["split-window", "-d", "-t", expected.windowId, "sleep 60"]);
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+
+    const result = await listFleets(
+      { fleet: "alpha-worker" },
+      undefined,
+      adapter,
+    );
+    expect(result.details).toMatchObject({
+      serverPresent: true,
+      filter: "alpha-worker",
+      fleets: [{ name: "alpha-worker", instances: [] }],
+      warningCount: 1,
+    });
+    expect(result.content[0]?.text).toContain("Warnings (1)");
+    expect(result.details.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "AMBIGUOUS_WINDOW",
+        windowId: expected.windowId,
+      }),
+    );
+  });
+
+  it("captures bounded plain running-pane output by stable pane ID without changing a client's active window", async () => {
+    fixture = await createFixture();
+    await createManagedFixture(
+      "alpha-worker",
+      "printf '\\033[31mfirst\\033[0m\\nsecond\\nthird\\nfourth\\n'; sleep 60",
+    );
+    const client = spawn(
+      "/usr/bin/script",
+      [
+        "-qefc",
+        `${tmuxPath} -S '${fixture.socket}' attach -t alpha-worker`,
+        "/dev/null",
+      ],
+      { env: { ...process.env, TERM: "xterm" }, stdio: "ignore" },
+    );
+    fixture.clients.add(client);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const activeBefore = await tmux([
+      "display-message",
+      "-p",
+      "-t",
+      "alpha-worker",
+      "#{window_id}",
+    ]);
+
+    const result = await viewFleet(
+      { fleet: "alpha-worker", instance: 1, lines: 2 },
+      undefined,
+      new TmuxAdapter({ agentDir: fixture.agentDir }),
+    );
+
+    expect(result.details).toMatchObject({
+      state: "running",
+      requestedLines: 2,
+      captureTruncated: true,
+      outputTruncated: false,
+    });
+    expect(result.content[0]?.text).toContain("third");
+    expect(result.content[0]?.text).toContain("fourth");
+    expect(result.content[0]?.text).not.toContain("\u001b");
+    expect(result.content[0]?.text).toContain("[Terminal view truncated");
+    await expect(
+      tmux(["display-message", "-p", "-t", "alpha-worker", "#{window_id}"]),
+    ).resolves.toBe(activeBefore);
+  });
+
+  it("truncates large captures below Pi's tool-output ceiling with a clear indicator", async () => {
+    fixture = await createFixture();
+    await createManagedFixture(
+      "alpha-worker",
+      "sleep 0.2; i=0; while [ $i -lt 500 ]; do printf '%0200d\\n' \"$i\"; i=$((i + 1)); done; sleep 60",
+    );
+    await tmux([
+      "resize-window",
+      "-t",
+      "alpha-worker:1",
+      "-x",
+      "512",
+      "-y",
+      "40",
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const result = await viewFleet(
+      { fleet: "alpha-worker", instance: 1, lines: 500 },
+      undefined,
+      new TmuxAdapter({ agentDir: fixture.agentDir }),
+    );
+
+    expect(result.details).toMatchObject({ outputTruncated: true });
+    expect(result.content[0]?.text).toContain("[Terminal view truncated");
+    expect(
+      Buffer.byteLength(result.content[0]?.text ?? "", "utf8"),
+    ).toBeLessThan(50 * 1024);
+  });
+
+  it("captures live alternate-screen output and retained exited primary output", async () => {
+    fixture = await createFixture();
+    await createManagedFixture(
+      "alpha-worker",
+      "printf '\\033[?1049halternate live screen\\n'; sleep 60",
+    );
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const live = await viewFleet(
+      { fleet: "alpha-worker", instance: 1, lines: 20 },
+      undefined,
+      adapter,
+    );
+    expect(live.details).toMatchObject({
+      state: "running",
+      alternateScreenActive: true,
+      capturedAlternateScreen: false,
+      usedPrimaryFallback: true,
+    });
+    expect(live.content[0]?.text).toContain("alternate live screen");
+    expect(live.content[0]?.text).toContain("primary-screen fallback");
+
+    await createManagedFixture(
+      "beta-worker",
+      "printf 'retained exited output\\n'; sleep 0.15; exit 7",
+      true,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const exited = await viewFleet(
+      { fleet: "beta-worker", instance: 1, lines: 100 },
+      undefined,
+      adapter,
+    );
+    expect(exited.details).toMatchObject({
+      state: "exited",
+      capturedAlternateScreen: false,
+    });
+    expect(exited.content[0]?.text).toContain("retained exited output");
+    expect(exited.content[0]?.text).toContain("retained primary screen");
+  });
+
+  it("refuses a split managed window rather than capturing an ambiguous pane", async () => {
+    fixture = await createFixture();
+    const expected = await createManagedFixture();
+    await tmux(["split-window", "-d", "-t", expected.windowId, "sleep 60"]);
+
+    await expect(
+      viewFleet(
+        { fleet: "alpha-worker", instance: 1 },
+        undefined,
+        new TmuxAdapter({ agentDir: fixture.agentDir }),
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.AMBIGUOUS_WINDOW });
   });
 });
 

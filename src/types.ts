@@ -69,6 +69,24 @@ export interface TmuxInventory {
   readonly clients: readonly TmuxClient[];
 }
 
+/** A bounded, plain-text capture of one stable managed pane. */
+export interface PaneCapture {
+  readonly paneId: string;
+  readonly text: string;
+  /** Whether the capture came from tmux's alternate screen. */
+  readonly alternateScreen: boolean;
+  /** Whether tmux reported an active alternate screen before capture. */
+  readonly alternateScreenActive: boolean;
+  /** True when an empty alternate capture required a primary-screen fallback. */
+  readonly usedPrimaryFallback: boolean;
+  readonly captureTruncated: boolean;
+}
+
+export interface CapturedManagedInstance {
+  readonly instance: ManagedInstance;
+  readonly capture: PaneCapture;
+}
+
 export type FleetOwnership =
   | { readonly kind: "managed" }
   | { readonly kind: "unmanaged" }
