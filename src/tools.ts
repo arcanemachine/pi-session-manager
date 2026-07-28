@@ -403,10 +403,13 @@ function renderFleetList(
     lines.push("No managed fleets found.");
   } else {
     for (const fleet of fleets) {
-      const instances = fleet.instances
-        .map((instance) => `${instance.instance} ${instance.state}`)
-        .join(", ");
-      lines.push(`${fleet.name}: ${instances || "no managed instances"}`);
+      if (fleet.instances.length === 0) {
+        lines.push(`${fleet.name}: no managed instances`);
+        continue;
+      }
+      for (const instance of fleet.instances) {
+        lines.push(renderFleetInstance(instance));
+      }
     }
   }
   if (inventory.warnings.length > 0) {
@@ -415,6 +418,52 @@ function renderFleetList(
     );
   }
   return lines.join("\n");
+}
+
+function renderFleetInstance(instance: ManagedInstance): string {
+  const fields = [
+    `fleet=${renderListValue(instance.fleet)}`,
+    `instance=${instance.instance}`,
+    `state=${instance.state}`,
+    `session=${instance.sessionId}`,
+    `window=${instance.windowId}`,
+    `pane=${instance.paneId}`,
+    `index=${instance.windowIndex}`,
+    `name=${renderListValue(instance.windowName)}`,
+  ];
+
+  if (instance.state === "running") {
+    if (instance.currentCommand !== undefined) {
+      fields.push(`command=${renderListValue(instance.currentCommand)}`);
+    }
+    if (instance.pid !== undefined) {
+      fields.push(`pid=${instance.pid}`);
+    }
+  } else {
+    fields.push(
+      `exitStatus=${renderOptionalListNumber(instance.exitStatus)}`,
+      `exitSignal=${renderOptionalListNumber(instance.exitSignal)}`,
+      `exitTime=${renderOptionalListNumber(instance.exitTime)}`,
+    );
+  }
+
+  if (instance.currentPath !== undefined) {
+    fields.push(`path=${renderListValue(instance.currentPath)}`);
+  }
+  fields.push(
+    `viewed=${instance.viewedByUser ? "yes" : "no"}`,
+    `activeViewers=${instance.activeViewerCount}`,
+    `attach=${renderListValue(instance.attachmentCommand)}`,
+  );
+  return fields.join(" ");
+}
+
+function renderOptionalListNumber(value: number | undefined): string {
+  return value === undefined ? "unavailable" : String(value);
+}
+
+function renderListValue(value: string): string {
+  return JSON.stringify(value);
 }
 
 function throwViewLookupError(

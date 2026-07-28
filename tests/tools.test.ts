@@ -20,6 +20,7 @@ import {
 } from "../src/constants.js";
 import { ErrorCode, SessionManagerError } from "../src/errors.js";
 import { TmuxAdapter } from "../src/tmux.js";
+import type { ManagedInstance, TmuxInventory } from "../src/types.js";
 import { createFakePi } from "./fake-pi.js";
 
 const EXPECTED_TOOLS = [
@@ -140,6 +141,14 @@ describe("tool registration", () => {
   });
 
   it("kept authorization is reflected by the disabled->authorized transition", async () => {
+    const inventory = vi
+      .spyOn(TmuxAdapter.prototype, "inventory")
+      .mockResolvedValue({
+        serverPresent: false,
+        fleets: [],
+        warnings: [],
+        clients: [],
+      });
     const fake = createFakePi();
     registerTools(fake.pi);
     const list = fake.tools.find((t) => t.name === TOOL_LIST)!;
@@ -154,6 +163,7 @@ describe("tool registration", () => {
     ).resolves.toMatchObject({
       details: { serverPresent: false, fleets: [] },
     });
+    inventory.mockRestore();
   });
 
   it("force-close schema and runtime require confirmProcessTermination to be exactly true", async () => {
@@ -240,3 +250,129 @@ describe("tool registration", () => {
     });
   });
 });
+
+describe("fleet list rendering", () => {
+  it("renders all available running and exited instance fields", async () => {
+    const attachmentCommand =
+      "tmux -S /tmp/pi-session-manager/tmux.sock attach -t alpha-worker";
+    const inventory: TmuxInventory = {
+      serverPresent: true,
+      clients: [],
+      warnings: [],
+      fleets: [
+        {
+          name: "alpha-worker",
+          sessionId: "$0",
+          attachmentCommand,
+          instances: [
+            managedInstance({
+              currentCommand: "pi",
+              pid: 42,
+              currentPath: "/workspace/worker",
+              viewedByUser: true,
+              activeViewerCount: 1,
+              attachmentCommand,
+            }),
+            managedInstance({
+              instance: 2,
+              windowId: "@2",
+              paneId: "%2",
+              windowIndex: 2,
+              windowName: "alpha-worker-2",
+              state: "exited",
+              exitStatus: 0,
+              exitSignal: 15,
+              exitTime: 1_700_000_000,
+              attachmentCommand,
+            }),
+            managedInstance({
+              instance: 3,
+              windowId: "@3",
+              paneId: "%3",
+              windowIndex: 3,
+              windowName: "alpha-worker-3",
+              state: "exited",
+              attachmentCommand,
+            }),
+          ],
+        },
+      ],
+    };
+
+    const result = await listFleets({}, undefined, listAdapter(inventory));
+    const text = result.content[0]?.text ?? "";
+
+    expect(text).toContain(
+      'fleet="alpha-worker" instance=1 state=running session=$0 window=@1 pane=%1 index=1 name="alpha-worker-1" command="pi" pid=42 path="/workspace/worker" viewed=yes activeViewers=1',
+    );
+    expect(text).toContain(`attach="${attachmentCommand}"`);
+    expect(text).toContain(
+      'fleet="alpha-worker" instance=2 state=exited session=$0 window=@2 pane=%2 index=2 name="alpha-worker-2" exitStatus=0 exitSignal=15 exitTime=1700000000 viewed=no activeViewers=0',
+    );
+    expect(text).toContain(
+      'fleet="alpha-worker" instance=3 state=exited session=$0 window=@3 pane=%3 index=3 name="alpha-worker-3" exitStatus=unavailable exitSignal=unavailable exitTime=unavailable viewed=no activeViewers=0',
+    );
+  });
+
+  it("preserves safe bounded list rendering", async () => {
+    const attachmentCommand =
+      "tmux -S /tmp/pi-session-manager/tmux.sock attach -t alpha-worker";
+    const inventory: TmuxInventory = {
+      serverPresent: true,
+      clients: [],
+      warnings: [],
+      fleets: [
+        {
+          name: "alpha-worker",
+          sessionId: "$0",
+          attachmentCommand,
+          instances: Array.from({ length: 1_000 }, (_, index) =>
+            managedInstance({
+              instance: index + 1,
+              windowId: `@${index + 1}`,
+              paneId: `%${index + 1}`,
+              windowIndex: index + 1,
+              windowName: `alpha-worker-${"x".repeat(512)}`,
+              attachmentCommand,
+            }),
+          ),
+        },
+      ],
+    };
+
+    const result = await listFleets({}, undefined, listAdapter(inventory));
+    const text = result.content[0]?.text ?? "";
+
+    expect(result.details.outputTruncated).toBe(true);
+    expect(text).toContain(
+      "[Fleet list truncated to the safe tool-output limit.]",
+    );
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(50 * 1024);
+  });
+});
+
+function managedInstance(
+  overrides: Partial<ManagedInstance> = {},
+): ManagedInstance {
+  return {
+    fleet: "alpha-worker",
+    instance: 1,
+    sessionId: "$0",
+    windowId: "@1",
+    paneId: "%1",
+    windowIndex: 1,
+    windowName: "alpha-worker-1",
+    state: "running",
+    activeViewerCount: 0,
+    viewedByUser: false,
+    attachmentCommand:
+      "tmux -S /tmp/pi-session-manager/tmux.sock attach -t alpha-worker",
+    ...overrides,
+  };
+}
+
+function listAdapter(inventory: TmuxInventory): TmuxAdapter {
+  return {
+    inventory: vi.fn().mockResolvedValue(inventory),
+  } as unknown as TmuxAdapter;
+}
