@@ -1,11 +1,11 @@
 ---
 title: Pi Session Manager V1
-status: execution-in-progress
+status: execution-paused
 artifact_type: implementation-plan
 scope: standalone Pi extension package
 implementation_authority: task-by-task user authorization
-current_task: Task 7 — Full verification and user acceptance
-current_owner: pi-session-manager-worker
+current_task: Task 7 — Full verification and user acceptance (paused during live UAT)
+current_owner: unassigned
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
@@ -22,13 +22,13 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local verification (format check, typecheck, 51 tests, and diff check).
 - **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local verification (format check, typecheck, 57 tests, and diff check), and correction of stale package status text introduced by completed Tasks 2–5.
 - **Task 6 — Documentation and superproject integration:** Accepted after implementation, Architect/coordinator review, package-local verification (format check, typecheck, 57 tests, package dry-run), and root integration review. Root manifests now load/list the package and resolve the required Pi extension API `0.80.10`. The worker reported clean-workspace root typecheck/test success; independent full-root typecheck is currently blocked by unrelated uncommitted `packages/pi-supercompact/src/index.ts` errors, while independent targeted root-resolution typecheck/test and root manifest formatting passed.
-- **Task 7 — Full verification and user acceptance:** In progress. Live acceptance passed creation, multi-fleet topology, attachment, authorization isolation, and bounded no-focus view through step 10. Step 11 exposed that `pi_fleet_list` readable content omitted plan-required instance/exit details. The bounded renderer/test correction was accepted after independent format, typecheck, 59-test, and diff verification; live UAT remains paused only until `/reload` and retest against retained exited worker 1.
+- **Task 7 — Full verification and user acceptance:** Paused during live UAT. Steps 1–2 and 4–10 passed; separate-process authorization isolation also passed. Step 11 retained exited worker 1 and exposed missing readable list details; the bounded renderer/test correction passed independent format, typecheck, 59-test, and diff verification but has not yet been loaded into the live Manager or retested. A second live defect is open: declining `/session-manager on` while authorization is already enabled leaves state unchanged but incorrectly notifies `Session Manager remains disabled.` because `src/command.ts` hard-codes the declined-`on` message. Resume with a bounded command-notification correction and tests, then reload the existing Manager, verify authorization retention, and retest the corrected list output before continuing at close behavior.
 - **External publishing constraint:** The unscoped npm name `pi-session-manager@0.1.0` is already owned by an unrelated registry package. The plan fixes this package’s unscoped name, so npm publication requires a separate ownership-transfer decision; Git and local installation are documented and verified.
-- **Outstanding Task 1 live verification:** Real-TUI `/reload` authorization retention and separately spawned-process default-disabled behavior remain deferred to the mandatory live acceptance stage. They were not claimed as completed by Task 1 unit tests.
-- **Outstanding Task 2 live verification:** Full end-to-end fleet inventory remains subject to the mandatory live acceptance stage. Task 2’s hermetic tmux tests cover its adapter/inventory foundation only.
-- **Outstanding Task 3 live verification:** Creation with a real normal Pi TUI, user tmux attachment, batched individual create calls, and immediate-exit behavior in the complete extension remain deferred to the mandatory live acceptance stage. Task 3’s hermetic tests use a non-public fixture executable only.
-- **Outstanding Task 4 live verification:** Capture behavior for a real normal Pi full-screen TUI, retained dead panes, bounded live output, and no focus change remains subject to the mandatory live acceptance stage. Task 4’s hermetic tmux fixtures verify the bounded fallback behavior but do not replace user observation.
-- **Outstanding Task 5 live verification:** Dead-only close, explicit live force-close, attached-human protection, and final-session disappearance with real normal Pi workers remain subject to the mandatory live acceptance stage. Task 5’s hermetic tmux fixtures verify the enforcement paths but do not replace user observation.
+- **Outstanding Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. Real-TUI `/reload` authorization retention remains pending.
+- **Outstanding Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
+- **Outstanding Task 3 live verification:** Batched individual creation, one-based windows, normal real Pi TUIs, manual attachment, and multiple fleets passed live UAT. No live acceptance gap remains for the Task 3 surface.
+- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list detail retest remains blocked on loading the accepted renderer correction.
+- **Outstanding Task 5 live verification:** Dead-only close, live-close rejection, force-close confirmation/success, attached-human protection, manual deletion, untagged-object handling, and final-session disappearance remain pending.
 
 ### Advancement protocol
 

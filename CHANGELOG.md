@@ -11,7 +11,7 @@ V1 implementation is complete through Task 6. Mandatory live user acceptance rem
   by `Symbol.for("pi-session-manager.authorization.v1")`. Authorization is off
   by default, survives reload/same-process session replacement, and is never
   persisted to files, session entries, environment variables, or worker args.
-- Five always-registered, always-active, authorization-gated tool skeletons:
+- Five always-registered, always-active, authorization-gated tools:
   `pi_fleet_list`, `pi_fleet_view`, `pi_fleet_create`, `pi_fleet_close`, and
   `pi_fleet_force_close`, with static prompt metadata and sequential execution
   for the three mutating tools.
@@ -21,7 +21,8 @@ V1 implementation is complete through Task 6. Mandatory live user acceptance rem
 - Dedicated explicit-socket tmux adapter with V1 ownership tags, strict
   inventory, normal direct Pi launch, bounded plain-text capture, and no
   default-server mutation.
-- Functional `pi_fleet_create`, `pi_fleet_list`, and `pi_fleet_view` tools.
+- Functional `pi_fleet_create`, `pi_fleet_list`, and `pi_fleet_view` tools,
+  including bounded per-instance inventory details in list output.
 - Functional dead-only `pi_fleet_close` and guarded live-process
   `pi_fleet_force_close` tools, including stable-ID revalidation and protection
   for actively viewed human windows.
