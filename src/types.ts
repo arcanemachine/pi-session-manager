@@ -79,6 +79,8 @@ export interface PaneCapture {
   readonly alternateScreenActive: boolean;
   /** True when an empty alternate capture required a primary-screen fallback. */
   readonly usedPrimaryFallback: boolean;
+  /** The bounded tmux client stdout limit interrupted a valid capture. */
+  readonly rawOutputTruncated: boolean;
   readonly captureTruncated: boolean;
 }
 

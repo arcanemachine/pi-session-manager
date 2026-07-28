@@ -332,6 +332,7 @@ export async function viewFleet(
       capturedAlternateScreen: capture.alternateScreen,
       alternateScreenActive: capture.alternateScreenActive,
       usedPrimaryFallback: capture.usedPrimaryFallback,
+      rawOutputTruncated: capture.rawOutputTruncated,
       captureTruncated: capture.captureTruncated,
       outputTruncated: output.truncated,
     },

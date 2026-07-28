@@ -548,6 +548,40 @@ describe("TmuxAdapter list and view integration", () => {
     ).toBeLessThan(50 * 1024);
   });
 
+  it("returns a truncated successful capture when valid pane output exceeds the raw capture cap", async () => {
+    fixture = await createFixture();
+    await createManagedFixture(
+      "alpha-worker",
+      "sleep 0.2; i=0; while [ $i -lt 500 ]; do printf '%01500d\\n' \"$i\"; i=$((i + 1)); done; sleep 60",
+    );
+    await tmux([
+      "resize-window",
+      "-t",
+      "alpha-worker:1",
+      "-x",
+      "2048",
+      "-y",
+      "40",
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 750));
+
+    const result = await viewFleet(
+      { fleet: "alpha-worker", instance: 1, lines: 500 },
+      undefined,
+      new TmuxAdapter({ agentDir: fixture.agentDir }),
+    );
+
+    expect(result.details).toMatchObject({
+      rawOutputTruncated: true,
+      captureTruncated: true,
+      outputTruncated: true,
+    });
+    expect(result.content[0]?.text).toContain("[Terminal view truncated");
+    expect(
+      Buffer.byteLength(result.content[0]?.text ?? "", "utf8"),
+    ).toBeLessThan(50 * 1024);
+  });
+
   it("captures live alternate-screen output and retained exited primary output", async () => {
     fixture = await createFixture();
     await createManagedFixture(

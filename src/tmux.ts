@@ -406,7 +406,9 @@ export class TmuxAdapter {
       const alternateScreenActive = parseAlternateScreen(
         alternateResult.stdout,
       );
-      const capture = async (alternateScreen: boolean): Promise<string[]> => {
+      const capture = async (
+        alternateScreen: boolean,
+      ): Promise<{ lines: string[]; outputTruncated: boolean }> => {
         const captureResult = await this.runServerCommandRaw(
           [
             "capture-pane",
@@ -423,25 +425,31 @@ export class TmuxAdapter {
           signal,
           CAPTURE_MAX_OUTPUT_BYTES,
         );
-        this.throwForProcessFailure(captureResult, "capturing managed pane");
+        const outputTruncated = this.captureOutputTruncated(captureResult);
         const capturedLines = splitCapturedLines(
           stripTerminalEscapes(captureResult.stdout),
         );
         while (capturedLines.at(-1) === "") capturedLines.pop();
-        return capturedLines;
+        return { lines: capturedLines, outputTruncated };
       };
-      const alternateLines = alternateScreenActive ? await capture(true) : [];
-      const useAlternate = alternateLines.some((line) => line.trim() !== "");
-      const capturedLines = useAlternate
-        ? alternateLines
+      const alternateCapture = alternateScreenActive
+        ? await capture(true)
+        : { lines: [], outputTruncated: false };
+      const useAlternate = alternateCapture.lines.some(
+        (line) => line.trim() !== "",
+      );
+      const selectedCapture = useAlternate
+        ? alternateCapture
         : await capture(false);
-      const captureTruncated = capturedLines.length > lines;
+      const captureTruncated =
+        selectedCapture.outputTruncated || selectedCapture.lines.length > lines;
       return {
         paneId,
-        text: capturedLines.slice(-lines).join("\n"),
+        text: selectedCapture.lines.slice(-lines).join("\n"),
         alternateScreen: useAlternate,
         alternateScreenActive,
         usedPrimaryFallback: alternateScreenActive && !useAlternate,
+        rawOutputTruncated: selectedCapture.outputTruncated,
         captureTruncated,
       };
     } catch (error) {
@@ -727,6 +735,35 @@ export class TmuxAdapter {
       ...toWindowSnapshot(window),
       ...(panes.length === 1 ? { paneId: panes[0].id } : {}),
     };
+  }
+
+  /**
+   * A bounded capture may terminate the tmux client after its raw stdout cap.
+   * Its retained stdout is a valid partial observation, unlike cancellation,
+   * timeout, malformed output, or a genuine tmux failure.
+   */
+  private captureOutputTruncated(result: ProcessResult): boolean {
+    if (result.cancelled) {
+      throw new SessionManagerError(
+        ErrorCode.CAPTURE_FAILED,
+        "tmux capture was cancelled.",
+      );
+    }
+    if (result.timedOut) {
+      throw new SessionManagerError(
+        ErrorCode.CAPTURE_FAILED,
+        "tmux capture timed out.",
+      );
+    }
+    if (
+      result.outputExceeded &&
+      result.stdout !== "" &&
+      result.stderr.trim() === ""
+    ) {
+      return true;
+    }
+    this.throwForProcessFailure(result, "capturing managed pane");
+    return false;
   }
 
   private async runServerCommand(
