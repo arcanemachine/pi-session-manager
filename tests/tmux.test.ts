@@ -14,10 +14,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorCode } from "../src/errors.js";
-import { createFleetInstance, listFleets, viewFleet } from "../src/tools.js";
+import {
+  closeFleetInstance,
+  createFleetInstance,
+  forceCloseFleetInstance,
+  listFleets,
+  viewFleet,
+} from "../src/tools.js";
 import {
   FLEET_VERSION_TAG,
   INSTANCE_TAG,
@@ -633,6 +639,178 @@ describe("TmuxAdapter list and view integration", () => {
         { fleet: "alpha-worker", instance: 1 },
         undefined,
         new TmuxAdapter({ agentDir: fixture.agentDir }),
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.AMBIGUOUS_WINDOW });
+  });
+});
+
+describe("TmuxAdapter close and force-close integration", () => {
+  it("closes only an exited exact managed window and lets the final fleet/server disappear", async () => {
+    fixture = await createFixture();
+    await createManagedFixture("alpha-worker", "sleep 0.15; exit 7", true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+
+    await expect(
+      closeFleetInstance(
+        { fleet: "alpha-worker", instance: 1 },
+        undefined,
+        adapter,
+      ),
+    ).resolves.toMatchObject({
+      details: { fleet: "alpha-worker", instance: 1, removed: true },
+    });
+    await expect(adapter.inventory()).resolves.toEqual({
+      serverPresent: false,
+      fleets: [],
+      warnings: [],
+      clients: [],
+    });
+  });
+
+  it("rejects ordinary close of a live instance and force close of an exited instance", async () => {
+    fixture = await createFixture();
+    await createManagedFixture("alpha-worker");
+    await createManagedFixture("beta-worker", "sleep 0.15; exit 7", true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+
+    await expect(
+      closeFleetInstance(
+        { fleet: "alpha-worker", instance: 1 },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_RUNNING });
+    await expect(
+      forceCloseFleetInstance(
+        { fleet: "beta-worker", instance: 1, confirmProcessTermination: true },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_EXITED });
+  });
+
+  it("rejects both removals while an attached human is viewing the target", async () => {
+    fixture = await createFixture();
+    await createManagedFixture("alpha-worker");
+    await createManagedFixture("beta-worker", "sleep 0.15; exit 7", true);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    for (const fleet of ["alpha-worker", "beta-worker"]) {
+      const client = spawn(
+        "/usr/bin/script",
+        [
+          "-qefc",
+          `${tmuxPath} -S '${fixture.socket}' attach -t ${fleet}`,
+          "/dev/null",
+        ],
+        { env: { ...process.env, TERM: "xterm" }, stdio: "ignore" },
+      );
+      fixture.clients.add(client);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+
+    await expect(
+      forceCloseFleetInstance(
+        { fleet: "alpha-worker", instance: 1, confirmProcessTermination: true },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_VIEWED_BY_USER });
+    await expect(
+      closeFleetInstance(
+        { fleet: "beta-worker", instance: 1 },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_VIEWED_BY_USER });
+  });
+
+  it("force closes exactly the stable live window without changing another window", async () => {
+    fixture = await createFixture();
+    const first = await createManagedFixture("alpha-worker");
+    const second = await createManagedFixture("beta-worker");
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+
+    await expect(
+      forceCloseFleetInstance(
+        { fleet: "alpha-worker", instance: 1, confirmProcessTermination: true },
+        undefined,
+        adapter,
+      ),
+    ).resolves.toMatchObject({
+      details: {
+        windowId: first.windowId,
+        processTerminated: true,
+        removed: true,
+      },
+    });
+    await expect(adapter.inventory()).resolves.toMatchObject({
+      fleets: [
+        {
+          name: "beta-worker",
+          instances: [expect.objectContaining({ windowId: second.windowId })],
+        },
+      ],
+    });
+  });
+
+  it("rejects an identity or tag change detected immediately before removal", async () => {
+    fixture = await createFixture();
+    const expected = await createManagedFixture("alpha-worker");
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+    const inventory = adapter.inventory.bind(adapter);
+    let calls = 0;
+    vi.spyOn(adapter, "inventory").mockImplementation(async (signal) => {
+      calls += 1;
+      const result = await inventory(signal);
+      if (calls === 1) {
+        await tmux([
+          "set-window-option",
+          "-t",
+          expected.windowId,
+          PANE_ID_TAG,
+          "%999999",
+        ]);
+      }
+      return result;
+    });
+
+    await expect(
+      forceCloseFleetInstance(
+        { fleet: "alpha-worker", instance: 1, confirmProcessTermination: true },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.IDENTITY_CHANGED });
+    await expect(
+      tmux(["display-message", "-p", "-t", expected.windowId, "#{window_id}"]),
+    ).resolves.toBe(`${expected.windowId}\n`);
+  });
+
+  it("fails closed after manual deletion or a manually split managed window", async () => {
+    fixture = await createFixture();
+    const removed = await createManagedFixture("alpha-worker");
+    await tmux(["new-window", "-d", "-t", "alpha-worker:2", "sleep", "60"]);
+    const adapter = new TmuxAdapter({ agentDir: fixture.agentDir });
+    await tmux(["kill-window", "-t", removed.windowId]);
+
+    await expect(
+      forceCloseFleetInstance(
+        { fleet: "alpha-worker", instance: 1, confirmProcessTermination: true },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_NOT_FOUND });
+
+    const split = await createManagedFixture("beta-worker");
+    await tmux(["split-window", "-d", "-t", split.windowId, "sleep", "60"]);
+    await expect(
+      closeFleetInstance(
+        { fleet: "beta-worker", instance: 1 },
+        undefined,
+        adapter,
       ),
     ).rejects.toMatchObject({ code: ErrorCode.AMBIGUOUS_WINDOW });
   });

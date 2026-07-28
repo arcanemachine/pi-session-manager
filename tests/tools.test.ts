@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   MAX_PI_ARGS,
   MAX_PI_ARGS_BYTES,
+  forceCloseFleetInstance,
   listFleets,
   registerTools,
   SEQUENTIAL_TOOLS,
@@ -106,7 +107,7 @@ describe("tool registration", () => {
     inventory.mockRestore();
   });
 
-  it("keeps close and force-close as skeletons while list/view and create implement their assigned contracts", async () => {
+  it("dispatches authorized close tools to their runtime validation", async () => {
     setAuthorized(true);
     const fake = createFakePi();
     registerTools(fake.pi);
@@ -116,7 +117,7 @@ describe("tool registration", () => {
       await expect(
         tool.execute("id", {} as never, undefined, undefined, {} as never),
       ).rejects.toMatchObject({
-        code: ErrorCode.NOT_IMPLEMENTED,
+        code: ErrorCode.INVALID_FLEET,
       });
     }
     const create = fake.tools.find((tool) => tool.name === TOOL_CREATE)!;
@@ -155,7 +156,7 @@ describe("tool registration", () => {
     });
   });
 
-  it("force-close schema requires confirmProcessTermination to be exactly true", () => {
+  it("force-close schema and runtime require confirmProcessTermination to be exactly true", async () => {
     const fake = createFakePi();
     registerTools(fake.pi);
     const force = fake.tools.find((t) => t.name === TOOL_FORCE_CLOSE)!;
@@ -165,6 +166,13 @@ describe("tool registration", () => {
       Record<string, unknown>
     >;
     expect(properties.confirmProcessTermination.const).toBe(true);
+    await expect(
+      forceCloseFleetInstance({
+        fleet: "alpha-worker",
+        instance: 1,
+        confirmProcessTermination: false,
+      } as never),
+    ).rejects.toMatchObject({ code: ErrorCode.CONFIRMATION_REQUIRED });
   });
 
   it("create fleet schema carries the fleet name pattern and bounded opaque pi arguments", () => {

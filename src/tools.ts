@@ -74,6 +74,15 @@ export interface CreateFleetInput {
   readonly piArgs?: readonly string[];
 }
 
+export interface CloseFleetInput {
+  readonly fleet: string;
+  readonly instance: number;
+}
+
+export interface ForceCloseFleetInput extends CloseFleetInput {
+  readonly confirmProcessTermination: true;
+}
+
 export interface ValidatedCreateFleetInput {
   readonly fleet: string;
   readonly instance: number;
@@ -228,9 +237,9 @@ export function registerTools(pi: ExtensionAPI): void {
       fleet: Type.String({ description: FLEET_DESCRIPTION }),
       instance: Type.Integer({ minimum: 1, description: INSTANCE_DESCRIPTION }),
     }),
-    async execute() {
+    async execute(_toolCallId, params, signal) {
       requireAuthorization();
-      return notImplemented(TOOL_CLOSE);
+      return closeFleetInstance(params, signal);
     },
   });
 
@@ -249,9 +258,9 @@ export function registerTools(pi: ExtensionAPI): void {
         description: TOOL_TRUE_DESCRIPTION,
       }),
     }),
-    async execute() {
+    async execute(_toolCallId, params, signal) {
       requireAuthorization();
-      return notImplemented(TOOL_FORCE_CLOSE);
+      return forceCloseFleetInstance(params, signal);
     },
   });
 }
@@ -720,10 +729,154 @@ function partialCreateMessage(
   }
 }
 
-/** Placeholder failure thrown by authorized skeletons until later tasks. */
-function notImplemented(toolName: string): never {
-  throw new SessionManagerError(
-    ErrorCode.NOT_IMPLEMENTED,
-    `${toolName} is not implemented yet (planned for later Session Manager tasks).`,
+/** Remove one exited exact V1-managed instance without terminating a live process. */
+export async function closeFleetInstance(
+  input: CloseFleetInput,
+  signal?: AbortSignal,
+  adapter = new TmuxAdapter(),
+) {
+  const fleet = validateRequiredFleet(input.fleet);
+  const instance = validateInstance(input.instance);
+  const managed = await resolveManagedMutationTarget(
+    await adapter.inventory(signal),
+    fleet,
+    instance,
   );
+  requireExitedAndUnviewed(managed);
+  await adapter.removeManagedInstance(managed, "exited", signal);
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Closed exited managed instance ${fleet} ${instance}.`,
+      },
+    ],
+    details: {
+      fleet,
+      instance,
+      windowId: managed.windowId,
+      paneId: managed.paneId,
+      state: "exited" as const,
+      removed: true,
+    },
+  };
+}
+
+/** Terminate one live exact V1-managed instance by removing its stable window. */
+export async function forceCloseFleetInstance(
+  input: ForceCloseFleetInput,
+  signal?: AbortSignal,
+  adapter = new TmuxAdapter(),
+) {
+  const fleet = validateRequiredFleet(input.fleet);
+  const instance = validateInstance(input.instance);
+  if (input.confirmProcessTermination !== true) {
+    throw new SessionManagerError(
+      ErrorCode.CONFIRMATION_REQUIRED,
+      "confirmProcessTermination must be exactly true to terminate a live managed process.",
+    );
+  }
+  const managed = await resolveManagedMutationTarget(
+    await adapter.inventory(signal),
+    fleet,
+    instance,
+  );
+  requireRunningAndUnviewed(managed);
+  await adapter.removeManagedInstance(managed, "running", signal);
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Force-closed managed instance ${fleet} ${instance}; its live process was terminated by tmux window removal.`,
+      },
+    ],
+    details: {
+      fleet,
+      instance,
+      windowId: managed.windowId,
+      paneId: managed.paneId,
+      state: "running" as const,
+      removed: true,
+      processTerminated: true,
+    },
+  };
+}
+
+function resolveManagedMutationTarget(
+  inventory: TmuxInventory,
+  fleet: string,
+  instance: number,
+): ManagedInstance {
+  const managed = inventory.fleets
+    .find((candidate) => candidate.name === fleet)
+    ?.instances.find((candidate) => candidate.instance === instance);
+  if (managed) return managed;
+
+  const warning = inventory.warnings.find(
+    (candidate) =>
+      candidate.sessionName === fleet &&
+      (candidate.windowIndex === undefined ||
+        candidate.windowIndex === instance),
+  );
+  if (warning?.code === "AMBIGUOUS_WINDOW") {
+    throw new SessionManagerError(
+      ErrorCode.AMBIGUOUS_WINDOW,
+      `Fleet ${fleet} instance ${instance} is structurally ambiguous and cannot be removed.`,
+    );
+  }
+  if (warning?.code === "UNSUPPORTED_TAG_VERSION") {
+    throw new SessionManagerError(
+      ErrorCode.UNSUPPORTED_TAG_VERSION,
+      `Fleet ${fleet} instance ${instance} is not an exact V1-managed target.`,
+    );
+  }
+  if (warning) {
+    throw new SessionManagerError(
+      ErrorCode.UNMANAGED_TARGET,
+      `Fleet ${fleet} instance ${instance} is not an exact V1-managed target.`,
+    );
+  }
+  if (
+    !inventory.serverPresent ||
+    !inventory.fleets.some((candidate) => candidate.name === fleet)
+  ) {
+    throw new SessionManagerError(
+      ErrorCode.FLEET_NOT_FOUND,
+      `Managed fleet ${fleet} was not found.`,
+    );
+  }
+  throw new SessionManagerError(
+    ErrorCode.INSTANCE_NOT_FOUND,
+    `Managed instance ${instance} was not found in fleet ${fleet}.`,
+  );
+}
+
+function requireExitedAndUnviewed(instance: ManagedInstance): void {
+  if (instance.viewedByUser) {
+    throw new SessionManagerError(
+      ErrorCode.INSTANCE_VIEWED_BY_USER,
+      `A human is viewing managed instance ${instance.fleet} ${instance.instance}; switch away or detach before retrying.`,
+    );
+  }
+  if (instance.state === "running") {
+    throw new SessionManagerError(
+      ErrorCode.INSTANCE_RUNNING,
+      `Managed instance ${instance.fleet} ${instance.instance} is still running. End Pi gracefully through the user or an appropriate separate control system before closing it.`,
+    );
+  }
+}
+
+function requireRunningAndUnviewed(instance: ManagedInstance): void {
+  if (instance.viewedByUser) {
+    throw new SessionManagerError(
+      ErrorCode.INSTANCE_VIEWED_BY_USER,
+      `A human is viewing managed instance ${instance.fleet} ${instance.instance}; switch away or detach before retrying.`,
+    );
+  }
+  if (instance.state === "exited") {
+    throw new SessionManagerError(
+      ErrorCode.INSTANCE_EXITED,
+      `Managed instance ${instance.fleet} ${instance.instance} has already exited; use pi_fleet_close instead.`,
+    );
+  }
 }

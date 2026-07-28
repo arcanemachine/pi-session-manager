@@ -670,6 +670,34 @@ export class TmuxAdapter {
     return candidate;
   }
 
+  /**
+   * Kill one exact, freshly revalidated managed window by its stable ID.
+   * The required state and active-client protection are checked immediately
+   * before mutation; callers must still perform their own initial lookup so
+   * missing and unmanaged targets can receive actionable errors.
+   */
+  async removeManagedInstance(
+    expected: ManagedInstance,
+    requiredState: "running" | "exited",
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const current = await this.revalidateManagedInstance(
+      expected,
+      requiredState,
+      signal,
+    );
+    await this.runServerCommand(
+      ["kill-window", "-t", current.windowId],
+      signal,
+    );
+    if (await this.windowExists(current.sessionId, current.windowId, signal)) {
+      throw new SessionManagerError(
+        ErrorCode.TMUX_SERVER_ERROR,
+        `tmux did not remove managed window ${current.windowId}.`,
+      );
+    }
+  }
+
   /** Best-effort cleanup for a known just-created window after a tagging failure. */
   async cleanupCreatedInstance(
     created: CreatedTmuxInstance,
@@ -699,6 +727,65 @@ export class TmuxAdapter {
             : "unknown tmux cleanup failure",
       };
     }
+  }
+
+  /** Re-read exact V1 identity and mutation preconditions immediately before a kill. */
+  private async revalidateManagedInstance(
+    expected: ManagedInstance,
+    requiredState: "running" | "exited",
+    signal?: AbortSignal,
+  ): Promise<ManagedInstance> {
+    const inventory = await this.inventory(signal);
+    const current = inventory.fleets
+      .find((fleet) => fleet.name === expected.fleet)
+      ?.instances.find((instance) => instance.instance === expected.instance);
+    if (
+      !current ||
+      current.sessionId !== expected.sessionId ||
+      current.windowId !== expected.windowId ||
+      current.paneId !== expected.paneId
+    ) {
+      throw new SessionManagerError(
+        ErrorCode.IDENTITY_CHANGED,
+        "Managed instance identity, tags, or one-pane shape changed before removal.",
+      );
+    }
+    if (current.viewedByUser) {
+      throw new SessionManagerError(
+        ErrorCode.INSTANCE_VIEWED_BY_USER,
+        `A human is viewing managed instance ${current.fleet} ${current.instance}; switch away or detach before retrying.`,
+      );
+    }
+    if (current.state !== requiredState) {
+      if (requiredState === "exited") {
+        throw new SessionManagerError(
+          ErrorCode.INSTANCE_RUNNING,
+          `Managed instance ${current.fleet} ${current.instance} is still running. End Pi gracefully through the user or an appropriate separate control system before closing it.`,
+        );
+      }
+      throw new SessionManagerError(
+        ErrorCode.INSTANCE_EXITED,
+        `Managed instance ${current.fleet} ${current.instance} has already exited; use pi_fleet_close instead.`,
+      );
+    }
+    return current;
+  }
+
+  /** Confirm that this exact stable window is gone, even if tags changed. */
+  private async windowExists(
+    sessionId: string,
+    windowId: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const result = await this.runServerCommandRaw(
+      ["list-windows", "-a", "-F", WINDOW_FORMAT],
+      signal,
+    );
+    if (await this.isServerAbsent(result)) return false;
+    this.throwForProcessFailure(result, "verifying managed window removal");
+    return parseWindows(result.stdout).some(
+      (window) => window.sessionId === sessionId && window.id === windowId,
+    );
   }
 
   private async inspectCreatedWindow(
