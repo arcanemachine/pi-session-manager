@@ -85,3 +85,36 @@ export type WindowOwnership =
   | { readonly kind: "partial"; readonly reason: string }
   | { readonly kind: "unsupported-version"; readonly reason: string }
   | { readonly kind: "malformed"; readonly reason: string };
+
+export interface FleetInspection {
+  readonly serverPresent: boolean;
+  readonly fleet?: {
+    readonly sessionId: string;
+    readonly name: string;
+    readonly ownership: FleetOwnership;
+  };
+  readonly windows: readonly TmuxWindowSnapshot[];
+}
+
+export interface TmuxWindowSnapshot {
+  readonly sessionId: string;
+  readonly windowId: string;
+  readonly paneId?: string;
+  readonly index: number;
+  readonly name: string;
+  readonly paneCount: number;
+  readonly activeViewerCount: number;
+  readonly ownership: WindowOwnership;
+}
+
+export interface CreatedTmuxInstance {
+  readonly sessionId: string;
+  readonly windowId: string;
+  readonly paneId: string;
+}
+
+export type CreatedWindowCleanup =
+  | { readonly outcome: "removed" | "already-absent" }
+  | { readonly outcome: "viewed-by-user" }
+  | { readonly outcome: "identity-changed" }
+  | { readonly outcome: "failed"; readonly message: string };

@@ -1,8 +1,20 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
+
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import { requireAuthorization } from "./authorization.js";
 import { ErrorCode, SessionManagerError } from "./errors.js";
+import { TmuxAdapter } from "./tmux.js";
+import type {
+  CreatedTmuxInstance,
+  CreatedWindowCleanup,
+  ManagedInstance,
+} from "./types.js";
 import {
   FLEET_PATTERN,
   TOOL_CLOSE,
@@ -21,15 +33,32 @@ import {
  * promptGuidelines are static metadata that must NOT change when the
  * authorization Boolean toggles (PLAN.md section 5.4).
  *
- * Task 1 ships skeletons only: real tmux behaviour comes in later tasks, so the
- * authorized path currently returns a placeholder result until the corresponding
- * task implements it.
+ * Task 3 implements pi_fleet_create. The other four tools remain authorized
+ * skeletons until their assigned tasks implement their tmux behavior.
  */
 
 const FLEET_DESCRIPTION =
   "Managed fleet name. Conventionally <project>-<role>, treated as an opaque namespace. Must match [a-z0-9][a-z0-9_-]{0,63}.";
 const INSTANCE_DESCRIPTION =
-  "Positive integer instance number, equal to the tmux window index.";
+  "Positive safe integer instance number, equal to the tmux window index.";
+
+export const MAX_PI_ARGS = 128;
+export const MAX_PI_ARGS_BYTES = 64 * 1024;
+const FLEET_NAME_RE = new RegExp(FLEET_PATTERN);
+
+export interface CreateFleetInput {
+  readonly fleet: string;
+  readonly instance: number;
+  readonly cwd?: string;
+  readonly piArgs?: readonly string[];
+}
+
+export interface ValidatedCreateFleetInput {
+  readonly fleet: string;
+  readonly instance: number;
+  readonly cwd: string;
+  readonly piArgs: readonly string[];
+}
 
 const SHARED_TOOL_NAMES = [
   TOOL_LIST,
@@ -149,19 +178,20 @@ export function registerTools(pi: ExtensionAPI): void {
       cwd: Type.Optional(
         Type.String({
           description:
-            "Working directory for the worker. Defaults to the Manager Pi cwd.",
+            "Working directory for the worker. Defaults to the Manager Pi cwd and must resolve to an existing directory.",
         }),
       ),
       piArgs: Type.Optional(
-        Type.Array(Type.String(), {
+        Type.Array(Type.String({ maxLength: 16_384 }), {
+          maxItems: MAX_PI_ARGS,
           description:
-            "Opaque Pi argument array passed through to the worker. Each item is one argument; never joined as shell syntax.",
+            "Opaque Pi argument array passed directly to pi. At most 128 arguments and 64 KiB UTF-8 encoded size total; each item remains one argument and is never interpreted as shell syntax.",
         }),
       ),
     }),
-    async execute() {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       requireAuthorization();
-      return notImplemented(TOOL_CREATE);
+      return createFleetInstance(params, ctx, signal);
     },
   });
 
@@ -203,6 +233,256 @@ export function registerTools(pi: ExtensionAPI): void {
       return notImplemented(TOOL_FORCE_CLOSE);
     },
   });
+}
+
+export async function validateCreateFleetInput(
+  input: CreateFleetInput,
+  managerCwd: string,
+): Promise<ValidatedCreateFleetInput> {
+  if (typeof input.fleet !== "string" || !FLEET_NAME_RE.test(input.fleet)) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_FLEET,
+      "fleet must match [a-z0-9][a-z0-9_-]{0,63}.",
+    );
+  }
+  if (!Number.isSafeInteger(input.instance) || input.instance < 1) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_INSTANCE,
+      "instance must be a positive safe integer.",
+    );
+  }
+  if (input.cwd !== undefined && typeof input.cwd !== "string") {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_CWD,
+      "cwd must be a path string when provided.",
+    );
+  }
+  const cwd = resolve(managerCwd, input.cwd ?? managerCwd);
+  try {
+    if (!(await stat(cwd)).isDirectory()) {
+      throw new Error("not a directory");
+    }
+  } catch {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_CWD,
+      `cwd must resolve to an existing directory: ${cwd}.`,
+    );
+  }
+
+  const piArgs = input.piArgs ?? [];
+  if (!Array.isArray(piArgs) || piArgs.length > MAX_PI_ARGS) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_PI_ARGS,
+      `piArgs may contain at most ${MAX_PI_ARGS} arguments.`,
+    );
+  }
+  let encodedBytes = 0;
+  for (const argument of piArgs) {
+    if (typeof argument !== "string" || argument.includes("\0")) {
+      throw new SessionManagerError(
+        ErrorCode.INVALID_PI_ARGS,
+        "piArgs must contain plain string arguments without NUL characters.",
+      );
+    }
+    encodedBytes += Buffer.byteLength(argument, "utf8") + 1;
+  }
+  if (encodedBytes > MAX_PI_ARGS_BYTES) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_PI_ARGS,
+      `piArgs UTF-8 encoded size must not exceed ${MAX_PI_ARGS_BYTES} bytes.`,
+    );
+  }
+  return { fleet: input.fleet, instance: input.instance, cwd, piArgs };
+}
+
+export async function createFleetInstance(
+  input: CreateFleetInput,
+  ctx: Pick<ExtensionContext, "cwd">,
+  signal?: AbortSignal,
+  adapter = new TmuxAdapter(),
+) {
+  const validated = await validateCreateFleetInput(input, ctx.cwd);
+  await adapter.getVersion(signal);
+  await adapter.ensureStateDirectory();
+
+  const inspection = await adapter.inspectFleet(validated.fleet, signal);
+  const initializeServer = !inspection.serverPresent;
+  let existingSessionId: string | undefined;
+  if (initializeServer && validated.instance !== 1) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_INSTANCE,
+      "A new fleet must begin with instance 1.",
+    );
+  }
+
+  if (inspection.fleet) {
+    switch (inspection.fleet.ownership.kind) {
+      case "managed":
+        existingSessionId = inspection.fleet.sessionId;
+        break;
+      case "unsupported-version":
+        throw new SessionManagerError(
+          ErrorCode.UNSUPPORTED_TAG_VERSION,
+          "The same-named tmux fleet has an unsupported Session Manager tag version and will not be adopted.",
+        );
+      case "unmanaged":
+      case "malformed":
+        throw new SessionManagerError(
+          ErrorCode.FLEET_COLLISION,
+          "The same-named tmux fleet is not an exact V1-managed fleet and will not be adopted.",
+        );
+    }
+  } else if (validated.instance !== 1) {
+    throw new SessionManagerError(
+      ErrorCode.INVALID_INSTANCE,
+      "A new fleet must begin with instance 1.",
+    );
+  }
+
+  if (
+    inspection.windows.some((window) => window.index === validated.instance)
+  ) {
+    throw new SessionManagerError(
+      ErrorCode.INSTANCE_COLLISION,
+      `Fleet ${validated.fleet} already has a window at instance ${validated.instance}.`,
+    );
+  }
+
+  if (!initializeServer) {
+    await adapter.ensureCriticalOptions(signal);
+    const revalidated = await adapter.inspectFleet(validated.fleet, signal);
+    if (existingSessionId) {
+      if (
+        !revalidated.fleet ||
+        revalidated.fleet.sessionId !== existingSessionId ||
+        revalidated.fleet.ownership.kind !== "managed"
+      ) {
+        throw new SessionManagerError(
+          ErrorCode.IDENTITY_CHANGED,
+          "Fleet identity or ownership changed before creating the Pi instance.",
+        );
+      }
+    } else if (revalidated.fleet) {
+      throw new SessionManagerError(
+        ErrorCode.FLEET_COLLISION,
+        `Fleet ${validated.fleet} appeared during creation and will not be adopted.`,
+      );
+    }
+    if (
+      revalidated.windows.some((window) => window.index === validated.instance)
+    ) {
+      throw new SessionManagerError(
+        ErrorCode.INSTANCE_COLLISION,
+        `Fleet ${validated.fleet} already has a window at instance ${validated.instance}.`,
+      );
+    }
+  }
+
+  let created: CreatedTmuxInstance;
+  try {
+    created = await adapter.createDetachedInstance(
+      validated.fleet,
+      validated.instance,
+      validated.cwd,
+      validated.piArgs,
+      existingSessionId,
+      initializeServer,
+      signal,
+    );
+  } catch (error) {
+    if (
+      error instanceof SessionManagerError &&
+      error.code === ErrorCode.TMUX_SERVER_ERROR
+    ) {
+      const after = await adapter.inspectFleet(validated.fleet, signal);
+      if (after.windows.some((window) => window.index === validated.instance)) {
+        throw new SessionManagerError(
+          ErrorCode.INSTANCE_COLLISION,
+          `Fleet ${validated.fleet} already has a window at instance ${validated.instance}.`,
+        );
+      }
+      if (!existingSessionId && after.fleet) {
+        throw new SessionManagerError(
+          ErrorCode.FLEET_COLLISION,
+          `Fleet ${validated.fleet} appeared during creation and will not be adopted.`,
+        );
+      }
+    }
+    throw error;
+  }
+
+  try {
+    if (existingSessionId) {
+      const revalidated = await adapter.inspectFleet(validated.fleet, signal);
+      if (
+        !revalidated.fleet ||
+        revalidated.fleet.sessionId !== existingSessionId ||
+        revalidated.fleet.ownership.kind !== "managed"
+      ) {
+        throw new SessionManagerError(
+          ErrorCode.IDENTITY_CHANGED,
+          "Fleet identity or ownership changed before tagging the Pi instance.",
+        );
+      }
+    }
+    await adapter.tagCreatedInstance(
+      created,
+      validated.fleet,
+      validated.instance,
+      signal,
+    );
+    const instance = await adapter.validateCreatedInstance(
+      created,
+      validated.fleet,
+      validated.instance,
+      signal,
+    );
+    return createResult(instance, validated.cwd);
+  } catch (error) {
+    const cleanup = await adapter.cleanupCreatedInstance(created);
+    throw new SessionManagerError(
+      ErrorCode.CREATE_PARTIAL_FAILURE,
+      partialCreateMessage(created.windowId, error, cleanup),
+    );
+  }
+}
+
+function createResult(instance: ManagedInstance, cwd: string) {
+  const exit =
+    instance.state === "exited"
+      ? ` (exited${instance.exitStatus === undefined ? "" : ` with status ${instance.exitStatus}`})`
+      : "";
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Created ${instance.fleet} instance ${instance.instance}${exit}.`,
+      },
+    ],
+    details: { ...instance, cwd },
+  };
+}
+
+function partialCreateMessage(
+  windowId: string,
+  error: unknown,
+  cleanup: CreatedWindowCleanup,
+): string {
+  const cause =
+    error instanceof Error
+      ? error.message
+      : "unknown tagging or validation failure";
+  switch (cleanup.outcome) {
+    case "removed":
+    case "already-absent":
+      return `Created tmux window ${windowId} could not be tagged or validated (${cause}); cleanup ${cleanup.outcome}.`;
+    case "viewed-by-user":
+      return `Created unmanaged tmux window ${windowId} could not be tagged or validated (${cause}); it was not removed because a human is viewing it.`;
+    case "identity-changed":
+      return `Created unmanaged tmux window ${windowId} could not be tagged or validated (${cause}); it was not removed because its identity changed.`;
+    case "failed":
+      return `Created unmanaged tmux window ${windowId} could not be tagged or validated (${cause}); cleanup failed: ${cleanup.message}.`;
+  }
 }
 
 /** Placeholder failure thrown by authorized skeletons until later tasks. */

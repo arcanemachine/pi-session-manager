@@ -5,6 +5,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   stat,
   writeFile,
@@ -16,6 +17,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ErrorCode } from "../src/errors.js";
+import { createFleetInstance } from "../src/tools.js";
 import {
   FLEET_VERSION_TAG,
   INSTANCE_TAG,
@@ -39,6 +41,7 @@ interface Fixture {
   readonly directory: string;
   readonly socket: string;
   readonly agentDir: string;
+  readonly binDir: string;
   readonly clients: Set<ReturnType<typeof spawn>>;
 }
 
@@ -47,6 +50,8 @@ let fixture: Fixture | undefined;
 async function createFixture(): Promise<Fixture> {
   const directory = await mkdtemp(join(tmpdir(), "pi-session-manager-test-"));
   const agentDir = join(directory, "agent");
+  const binDir = join(directory, "bin");
+  await mkdir(binDir, { recursive: true });
   await mkdir(join(agentDir, "pi-session-manager"), {
     recursive: true,
     mode: 0o700,
@@ -55,6 +60,7 @@ async function createFixture(): Promise<Fixture> {
     directory,
     socket: join(agentDir, "pi-session-manager", "tmux.sock"),
     agentDir,
+    binDir,
     clients: new Set(),
   };
 }
@@ -122,6 +128,58 @@ async function createManagedFixture(
   await tmux(["rename-window", "-t", windowId, `${fleet}-1`]);
 
   return { sessionId, windowId, paneId };
+}
+
+async function writeFakePi(
+  outputPath: string,
+  mode: "sleep" | "exit" = "sleep",
+): Promise<void> {
+  if (!fixture) throw new Error("fixture is not initialized");
+  const script = `#!/bin/sh
+{
+  printf 'cwd=%s\\n' "$PWD"
+  printf 'argc=%s\\n' "$#"
+  for argument in "$@"; do printf 'arg=%s\\n' "$argument"; done
+  for key in PI_SESSION_ID PI_SESSION_FILE PI_PROVIDER PI_MODEL PI_REASONING_LEVEL; do
+    if printenv "$key" >/dev/null; then state=set; else state=unset; fi
+    printf '%s=%s\\n' "$key" "$state"
+  done
+} > "$FAKE_PI_OUTPUT"
+${mode === "exit" ? "exit 7" : "sleep 60"}
+`;
+  await writeFile(join(fixture.binDir, "pi"), script, { mode: 0o700 });
+}
+
+function createFixtureAdapter(
+  outputPath: string,
+  customTmuxPath?: string,
+): TmuxAdapter {
+  if (!fixture) throw new Error("fixture is not initialized");
+  return new TmuxAdapter({
+    agentDir: fixture.agentDir,
+    ...(customTmuxPath ? { tmuxPath: customTmuxPath } : {}),
+    environment: {
+      ...process.env,
+      PATH: `${fixture.binDir}:${process.env.PATH ?? ""}`,
+      FAKE_PI_OUTPUT: outputPath,
+      PI_SESSION_ID: "parent-session",
+      PI_SESSION_FILE: "/sensitive/parent.jsonl",
+      PI_PROVIDER: "parent-provider",
+      PI_MODEL: "parent-model",
+      PI_REASONING_LEVEL: "high",
+    },
+  });
+}
+
+async function waitForFile(path: string): Promise<string> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  throw new Error(`Timed out waiting for fixture output: ${path}`);
 }
 
 afterEach(async () => {
@@ -365,6 +423,187 @@ describe("TmuxAdapter hermetic integration", () => {
     expect(inventory.fleets[0]?.instances[0]).toMatchObject({
       viewedByUser: true,
       activeViewerCount: 1,
+    });
+  });
+});
+
+describe("TmuxAdapter create integration", () => {
+  it("creates and tags a one-based fleet using fixed direct pi argv and a sanitized environment", async () => {
+    fixture = await createFixture();
+    const output = join(fixture.directory, "fake-pi-output");
+    const workerCwd = join(fixture.directory, "worker-cwd");
+    await mkdir(workerCwd);
+    await writeFakePi(output);
+    const adapter = createFixtureAdapter(output);
+
+    const result = await createFleetInstance(
+      {
+        fleet: "alpha-worker",
+        instance: 1,
+        cwd: workerCwd,
+        piArgs: [
+          "one value",
+          ";",
+          "\\;",
+          "literal;touch should-not-exist",
+          "$HOME",
+        ],
+      },
+      { cwd: fixture.directory },
+      undefined,
+      adapter,
+    );
+
+    expect(result.details).toMatchObject({
+      fleet: "alpha-worker",
+      instance: 1,
+      windowIndex: 1,
+      windowName: "alpha-worker-1",
+      state: "running",
+      cwd: workerCwd,
+    });
+    const piOutput = await waitForFile(output);
+    expect(piOutput).toContain(`cwd=${workerCwd}`);
+    expect(piOutput).toContain("argc=5");
+    expect(piOutput).toContain("arg=one value");
+    expect(piOutput).toContain("arg=;");
+    expect(piOutput).toContain("arg=\\;");
+    expect(piOutput).toContain("arg=literal;touch should-not-exist");
+    expect(piOutput).toContain("arg=$HOME");
+    expect(piOutput).toContain("PI_SESSION_ID=unset");
+    expect(piOutput).toContain("PI_SESSION_FILE=unset");
+    expect(piOutput).toContain("PI_PROVIDER=unset");
+    expect(piOutput).toContain("PI_MODEL=unset");
+    expect(piOutput).toContain("PI_REASONING_LEVEL=unset");
+    await expect(
+      access(join(workerCwd, "should-not-exist")),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    await expect(tmux(["show-options", "-g", "base-index"])).resolves.toBe(
+      "base-index 1\n",
+    );
+    await expect(
+      tmux(["show-options", "-g", "renumber-windows"]),
+    ).resolves.toBe("renumber-windows off\n");
+    await expect(tmux(["show-options", "-g", "remain-on-exit"])).resolves.toBe(
+      "remain-on-exit on\n",
+    );
+    await expect(
+      tmux(["show-options", "-t", result.details.windowId, "automatic-rename"]),
+    ).resolves.toBe("automatic-rename off\n");
+
+    const inventory = await adapter.inventory();
+    expect(inventory.fleets[0]?.instances[0]).toMatchObject({
+      windowId: result.details.windowId,
+      paneId: result.details.paneId,
+      sessionId: result.details.sessionId,
+    });
+  });
+
+  it("rejects a non-initial new instance and occupied windows", async () => {
+    fixture = await createFixture();
+    const output = join(fixture.directory, "fake-pi-output");
+    await writeFakePi(output);
+    const adapter = createFixtureAdapter(output);
+
+    await expect(
+      createFleetInstance(
+        { fleet: "alpha-worker", instance: 2 },
+        { cwd: fixture.directory },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_INSTANCE });
+
+    await createFleetInstance(
+      { fleet: "alpha-worker", instance: 1 },
+      { cwd: fixture.directory },
+      undefined,
+      adapter,
+    );
+    await expect(
+      createFleetInstance(
+        { fleet: "alpha-worker", instance: 1 },
+        { cwd: fixture.directory },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_COLLISION });
+
+    await createFleetInstance(
+      { fleet: "alpha-worker", instance: 3 },
+      { cwd: fixture.directory },
+      undefined,
+      adapter,
+    );
+    await tmux(["new-window", "-d", "-t", "alpha-worker:2", "sleep", "60"]);
+    await expect(
+      createFleetInstance(
+        { fleet: "alpha-worker", instance: 2 },
+        { cwd: fixture.directory },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INSTANCE_COLLISION });
+
+    await tmux(["new-session", "-d", "-s", "beta-worker", "sleep", "60"]);
+    await expect(
+      createFleetInstance(
+        { fleet: "beta-worker", instance: 1 },
+        { cwd: fixture.directory },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.FLEET_COLLISION });
+  });
+
+  it("reports an immediate retained pi exit", async () => {
+    fixture = await createFixture();
+    const output = join(fixture.directory, "fake-pi-output");
+    await writeFakePi(output, "exit");
+    const adapter = createFixtureAdapter(output);
+
+    const result = await createFleetInstance(
+      { fleet: "alpha-worker", instance: 1 },
+      { cwd: fixture.directory },
+      undefined,
+      adapter,
+    );
+    expect(result.details).toMatchObject({ state: "exited", exitStatus: 7 });
+  });
+
+  it("removes the exact new window when controlled tag application fails", async () => {
+    fixture = await createFixture();
+    const output = join(fixture.directory, "fake-pi-output");
+    await writeFakePi(output);
+    const failingTmux = join(fixture.directory, "failing-tmux");
+    await writeFile(
+      failingTmux,
+      `#!/bin/sh
+for argument in "$@"; do
+  if [ "$argument" = "${WINDOW_VERSION_TAG}" ]; then exit 1; fi
+done
+exec ${tmuxPath} "$@"
+`,
+      { mode: 0o700 },
+    );
+    const adapter = createFixtureAdapter(output, failingTmux);
+
+    await expect(
+      createFleetInstance(
+        { fleet: "alpha-worker", instance: 1 },
+        { cwd: fixture.directory },
+        undefined,
+        adapter,
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.CREATE_PARTIAL_FAILURE });
+    await expect(adapter.inventory()).resolves.toEqual({
+      serverPresent: false,
+      fleets: [],
+      warnings: [],
+      clients: [],
     });
   });
 });

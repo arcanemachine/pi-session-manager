@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
 import {
+  MAX_PI_ARGS,
+  MAX_PI_ARGS_BYTES,
   registerTools,
   SEQUENTIAL_TOOLS,
   TOOL_GUIDELINES,
+  validateCreateFleetInput,
 } from "../src/tools.js";
 import { resetAuthorization, setAuthorized } from "../src/authorization.js";
 import {
@@ -98,17 +101,25 @@ describe("tool registration", () => {
     }
   });
 
-  it("an authorized skeleton tool fails with not-implemented rather than touching tmux", async () => {
+  it("keeps the four unassigned tools as skeletons while create validates its assigned contract", async () => {
     setAuthorized(true);
     const fake = createFakePi();
     registerTools(fake.pi);
-    for (const tool of fake.tools) {
+    for (const tool of fake.tools.filter((tool) => tool.name !== TOOL_CREATE)) {
       await expect(
         tool.execute("id", {} as never, undefined, undefined, {} as never),
       ).rejects.toMatchObject({
         code: ErrorCode.NOT_IMPLEMENTED,
       });
     }
+    const create = fake.tools.find((tool) => tool.name === TOOL_CREATE)!;
+    await expect(
+      create.execute("id", {} as never, undefined, undefined, {
+        cwd: "/tmp",
+      } as never),
+    ).rejects.toMatchObject({
+      code: ErrorCode.INVALID_FLEET,
+    });
   });
 
   it("kept authorization is reflected by the disabled->authorized transition", async () => {
@@ -140,7 +151,7 @@ describe("tool registration", () => {
     expect(properties.confirmProcessTermination.const).toBe(true);
   });
 
-  it("create fleet schema carries the fleet name pattern", () => {
+  it("create fleet schema carries the fleet name pattern and bounded opaque pi arguments", () => {
     const fake = createFakePi();
     registerTools(fake.pi);
     const create = fake.tools.find((t) => t.name === TOOL_CREATE)!;
@@ -151,5 +162,57 @@ describe("tool registration", () => {
     >;
     expect(typeof properties.fleet.pattern).toBe("string");
     expect(properties.fleet.pattern).toContain("a-z0-9");
+    expect(properties.piArgs.maxItems).toBe(MAX_PI_ARGS);
+  });
+
+  it("validates fleet, safe instance, cwd, and opaque pi argument bounds", async () => {
+    await expect(
+      validateCreateFleetInput({ fleet: "Alpha", instance: 1 }, "/tmp"),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_FLEET });
+    await expect(
+      validateCreateFleetInput(
+        { fleet: "alpha", instance: Number.MAX_SAFE_INTEGER + 1 },
+        "/tmp",
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_INSTANCE });
+    await expect(
+      validateCreateFleetInput(
+        { fleet: "alpha", instance: 1, cwd: "/does/not/exist" },
+        "/tmp",
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_CWD });
+    await expect(
+      validateCreateFleetInput(
+        {
+          fleet: "alpha",
+          instance: 1,
+          piArgs: Array(MAX_PI_ARGS + 1).fill("x"),
+        },
+        "/tmp",
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_PI_ARGS });
+    await expect(
+      validateCreateFleetInput(
+        {
+          fleet: "alpha",
+          instance: 1,
+          piArgs: ["x".repeat(MAX_PI_ARGS_BYTES)],
+        },
+        "/tmp",
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.INVALID_PI_ARGS });
+  });
+
+  it("resolves cwd relative to Manager Pi and preserves each opaque pi argument", async () => {
+    const validated = await validateCreateFleetInput(
+      { fleet: "alpha", instance: 1, cwd: ".", piArgs: ["one value", "$HOME"] },
+      "/tmp",
+    );
+    expect(validated).toEqual({
+      fleet: "alpha",
+      instance: 1,
+      cwd: "/tmp",
+      piArgs: ["one value", "$HOME"],
+    });
   });
 });

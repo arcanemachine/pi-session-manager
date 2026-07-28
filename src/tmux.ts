@@ -7,6 +7,9 @@ import { constants as fsConstants } from "node:fs";
 import { FLEET_PATTERN } from "./constants.js";
 import { ErrorCode, SessionManagerError } from "./errors.js";
 import type {
+  CreatedTmuxInstance,
+  CreatedWindowCleanup,
+  FleetInspection,
   FleetOwnership,
   InventoryWarning,
   InventoryWarningCode,
@@ -16,6 +19,7 @@ import type {
   TmuxClient,
   TmuxInventory,
   TmuxVersion,
+  TmuxWindowSnapshot,
   WindowOwnership,
 } from "./types.js";
 
@@ -30,6 +34,7 @@ const WINDOW_FORMAT = `#{session_id}\t#{session_name}\t#{window_id}\t#{window_in
 const PANE_FORMAT =
   "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_signal}\t#{pane_dead_time}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}";
 const CLIENT_FORMAT = "#{client_name}\t#{client_session}";
+const CREATED_INSTANCE_FORMAT = "#{session_id}\t#{window_id}\t#{pane_id}";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024;
@@ -333,6 +338,273 @@ export class TmuxAdapter {
     );
   }
 
+  /** Inspect one exact fleet name without treating an untagged session as managed. */
+  async inspectFleet(
+    fleet: string,
+    signal?: AbortSignal,
+  ): Promise<FleetInspection> {
+    const sessionResult = await this.runServerCommandRaw(
+      ["list-sessions", "-F", SESSION_FORMAT],
+      signal,
+    );
+    if (await this.isServerAbsent(sessionResult)) {
+      return { serverPresent: false, windows: [] };
+    }
+    this.throwForProcessFailure(sessionResult, "listing tmux sessions");
+    const session = parseSessions(sessionResult.stdout).find(
+      (candidate) => candidate.name === fleet,
+    );
+    if (!session) return { serverPresent: true, windows: [] };
+
+    const windowResult = await this.runServerCommandRaw(
+      ["list-windows", "-a", "-F", WINDOW_FORMAT],
+      signal,
+    );
+    this.throwForProcessFailure(windowResult, "listing tmux windows");
+    const windows = parseWindows(windowResult.stdout)
+      .filter((window) => window.sessionId === session.id)
+      .map(toWindowSnapshot);
+    return {
+      serverPresent: true,
+      fleet: {
+        sessionId: session.id,
+        name: session.name,
+        ownership: classifyFleetOwnership(session.name, session.fleetVersion),
+      },
+      windows,
+    };
+  }
+
+  /** Create a detached tmux session/window running the fixed production `pi` executable. */
+  async createDetachedInstance(
+    fleet: string,
+    instance: number,
+    cwd: string,
+    piArgs: readonly string[],
+    existingSessionId: string | undefined,
+    initializeServer: boolean,
+    signal?: AbortSignal,
+  ): Promise<CreatedTmuxInstance> {
+    const windowName = `${fleet}-${instance}`;
+    const command = existingSessionId
+      ? [
+          "new-window",
+          "-d",
+          "-P",
+          "-F",
+          CREATED_INSTANCE_FORMAT,
+          "-t",
+          `${existingSessionId}:${instance}`,
+          "-n",
+          windowName,
+          "-c",
+          cwd,
+          "pi",
+          ...escapeDirectCommandArgs(piArgs),
+        ]
+      : [
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          CREATED_INSTANCE_FORMAT,
+          "-s",
+          fleet,
+          "-n",
+          windowName,
+          "-c",
+          cwd,
+          "pi",
+          ...escapeDirectCommandArgs(piArgs),
+        ];
+    const initialServerSetup = [
+      "start-server",
+      ";",
+      "set-option",
+      "-g",
+      "base-index",
+      "1",
+      ";",
+      "set-option",
+      "-g",
+      "renumber-windows",
+      "off",
+      ";",
+      "set-window-option",
+      "-g",
+      "remain-on-exit",
+      "on",
+      ";",
+      "set-option",
+      "-s",
+      "extended-keys",
+      "on",
+      ";",
+      "set-option",
+      "-s",
+      "extended-keys-format",
+      "csi-u",
+      ";",
+    ];
+    const result = await this.runServerCommandRaw(
+      initializeServer ? [...initialServerSetup, ...command] : command,
+      signal,
+    );
+    this.throwForProcessFailure(result, "creating managed Pi window");
+    return parseCreatedInstance(result.stdout);
+  }
+
+  /** Revalidate the exact created object before applying V1 ownership tags. */
+  async tagCreatedInstance(
+    created: CreatedTmuxInstance,
+    fleet: string,
+    instance: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const snapshot = await this.inspectCreatedWindow(created, signal);
+    if (
+      !snapshot ||
+      snapshot.paneId !== created.paneId ||
+      snapshot.paneCount !== 1
+    ) {
+      throw new SessionManagerError(
+        ErrorCode.IDENTITY_CHANGED,
+        "Created tmux window changed before Session Manager could apply ownership tags.",
+      );
+    }
+    await this.runServerCommand(
+      ["set-option", "-t", created.sessionId, FLEET_VERSION_TAG, V1_TAG_VALUE],
+      signal,
+    );
+    await this.runServerCommand(
+      [
+        "set-window-option",
+        "-t",
+        created.windowId,
+        WINDOW_VERSION_TAG,
+        V1_TAG_VALUE,
+      ],
+      signal,
+    );
+    await this.runServerCommand(
+      [
+        "set-window-option",
+        "-t",
+        created.windowId,
+        INSTANCE_TAG,
+        String(instance),
+      ],
+      signal,
+    );
+    await this.runServerCommand(
+      [
+        "set-window-option",
+        "-t",
+        created.windowId,
+        PANE_ID_TAG,
+        created.paneId,
+      ],
+      signal,
+    );
+    await this.runServerCommand(
+      ["rename-window", "-t", created.windowId, `${fleet}-${instance}`],
+      signal,
+    );
+    await this.disableAutomaticRename(created.windowId, signal);
+  }
+
+  /** Return the exact managed instance after tagging, or fail closed on identity change. */
+  async validateCreatedInstance(
+    created: CreatedTmuxInstance,
+    fleet: string,
+    instance: number,
+    signal?: AbortSignal,
+  ): Promise<ManagedInstance> {
+    const inventory = await this.inventory(signal);
+    const candidate = inventory.fleets
+      .find((entry) => entry.name === fleet)
+      ?.instances.find((entry) => entry.instance === instance);
+    if (
+      !candidate ||
+      candidate.sessionId !== created.sessionId ||
+      candidate.windowId !== created.windowId ||
+      candidate.paneId !== created.paneId
+    ) {
+      throw new SessionManagerError(
+        ErrorCode.IDENTITY_CHANGED,
+        "Created tmux window could not be revalidated as the exact managed instance.",
+      );
+    }
+    return candidate;
+  }
+
+  /** Best-effort cleanup for a known just-created window after a tagging failure. */
+  async cleanupCreatedInstance(
+    created: CreatedTmuxInstance,
+    signal?: AbortSignal,
+  ): Promise<CreatedWindowCleanup> {
+    try {
+      const snapshot = await this.inspectCreatedWindow(created, signal);
+      if (!snapshot) return { outcome: "already-absent" };
+      if (snapshot.paneId !== created.paneId || snapshot.paneCount !== 1) {
+        return { outcome: "identity-changed" };
+      }
+      if (snapshot.activeViewerCount > 0) return { outcome: "viewed-by-user" };
+      await this.runServerCommand(
+        ["kill-window", "-t", created.windowId],
+        signal,
+      );
+      const after = await this.inspectCreatedWindow(created, signal);
+      return after
+        ? { outcome: "failed", message: "window remained after cleanup" }
+        : { outcome: "removed" };
+    } catch (error) {
+      return {
+        outcome: "failed",
+        message:
+          error instanceof Error
+            ? truncateDiagnostic(error.message)
+            : "unknown tmux cleanup failure",
+      };
+    }
+  }
+
+  private async inspectCreatedWindow(
+    created: CreatedTmuxInstance,
+    signal?: AbortSignal,
+  ): Promise<TmuxWindowSnapshot | undefined> {
+    const windowResult = await this.runServerCommandRaw(
+      ["list-windows", "-a", "-F", WINDOW_FORMAT],
+      signal,
+    );
+    if (await this.isServerAbsent(windowResult)) return undefined;
+    this.throwForProcessFailure(
+      windowResult,
+      "revalidating created tmux window",
+    );
+    const matchingWindows = parseWindows(windowResult.stdout).filter(
+      (window) =>
+        window.id === created.windowId &&
+        window.sessionId === created.sessionId,
+    );
+    if (matchingWindows.length !== 1) return undefined;
+    const paneResult = await this.runServerCommandRaw(
+      ["list-panes", "-a", "-F", PANE_FORMAT],
+      signal,
+    );
+    this.throwForProcessFailure(paneResult, "revalidating created tmux pane");
+    const panes = parsePanes(paneResult.stdout).filter(
+      (pane) =>
+        pane.windowId === created.windowId &&
+        pane.sessionId === created.sessionId,
+    );
+    const window = matchingWindows[0];
+    return {
+      ...toWindowSnapshot(window),
+      ...(panes.length === 1 ? { paneId: panes[0].id } : {}),
+    };
+  }
+
   private async runServerCommand(
     args: string[],
     signal?: AbortSignal,
@@ -412,6 +684,43 @@ export class TmuxAdapter {
       );
     }
   }
+}
+
+function toWindowSnapshot(window: WindowRow): TmuxWindowSnapshot {
+  return {
+    sessionId: window.sessionId,
+    windowId: window.id,
+    index: window.index,
+    name: window.name,
+    paneCount: window.paneCount,
+    activeViewerCount: window.activeViewerCount,
+    ownership: classifyWindowOwnership(
+      window.version,
+      window.instance,
+      window.paneId,
+    ),
+  };
+}
+
+function escapeDirectCommandArgs(args: readonly string[]): string[] {
+  return args.map((argument) => {
+    if (argument === ";") return "\\;";
+    return argument.replaceAll("\\", "\\\\");
+  });
+}
+
+function parseCreatedInstance(output: string): CreatedTmuxInstance {
+  const records = parseRecords(output, 3, "created instance");
+  if (records.length !== 1) {
+    throw malformedOutput(
+      `created instance output has ${records.length} records; expected 1`,
+    );
+  }
+  const [sessionId, windowId, paneId] = records[0];
+  requireId(sessionId, SESSION_ID_PATTERN, "created session ID");
+  requireId(windowId, WINDOW_ID_PATTERN, "created window ID");
+  requireId(paneId, PANE_ID_PATTERN, "created pane ID");
+  return { sessionId, windowId, paneId };
 }
 
 function buildInventory(
