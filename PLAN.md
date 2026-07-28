@@ -1,11 +1,11 @@
 ---
 title: Pi Session Manager V1
-status: execution-awaiting-task-authorization
+status: execution-in-progress
 artifact_type: implementation-plan
 scope: standalone Pi extension package
 implementation_authority: task-by-task user authorization
-current_task: Task 4 — List and view tools (prepared; not started)
-current_owner: unassigned
+current_task: Task 4 — List and view tools
+current_owner: pi-session-manager-worker
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
@@ -19,7 +19,7 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 1 — Package foundation and authorization:** Accepted after implementation, review, correction, and package-local verification.
 - **Task 2 — Tmux adapter and inventory:** Accepted after implementation, Architect/coordinator review, and independent package-local verification (format check, typecheck, 37 tests, and diff check).
 - **Task 3 — Create tool:** Accepted after implementation, Architect/coordinator review, and independent package-local verification (format check, typecheck, 43 tests, and diff check).
-- **Task 4 — List and view tools:** Prepared; not started. Dispatch requires the user’s explicit approval after confirming that `pi-session-manager-worker` has been reset.
+- **Task 4 — List and view tools:** In progress. Assigned to the reset `pi-session-manager-worker` with explicit user authorization.
 - **Tasks 5–7:** Not started.
 - **Outstanding Task 1 live verification:** Real-TUI `/reload` authorization retention and separately spawned-process default-disabled behavior remain deferred to the mandatory live acceptance stage. They were not claimed as completed by Task 1 unit tests.
 - **Outstanding Task 2 live verification:** Full end-to-end inventory observation remains deferred until Task 4 implements agent-facing list/view behavior and the mandatory live acceptance stage. Task 2’s hermetic tmux tests cover its adapter/inventory foundation only.
