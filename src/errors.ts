@@ -12,16 +12,22 @@ export const ErrorCode = {
   TUI_REQUIRED: "TUI_REQUIRED",
   USER_CANCELLED: "USER_CANCELLED",
   NOT_IMPLEMENTED: "NOT_IMPLEMENTED",
+  TMUX_NOT_FOUND: "TMUX_NOT_FOUND",
+  TMUX_VERSION_UNSUPPORTED: "TMUX_VERSION_UNSUPPORTED",
+  TMUX_SERVER_ERROR: "TMUX_SERVER_ERROR",
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export class SessionManagerError extends Error {
   readonly code: ErrorCodeValue;
-  constructor(code: ErrorCodeValue, message: string) {
+  readonly stderr?: string;
+
+  constructor(code: ErrorCodeValue, message: string, stderr?: string) {
     super(message);
     this.name = "SessionManagerError";
     this.code = code;
+    this.stderr = stderr;
   }
 }
 
