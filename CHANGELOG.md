@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-V1 implementation in progress through Task 5.
+V1 implementation is complete through Task 6. Mandatory live user acceptance remains before release completion.
 
 - Pi extension `pi-session-manager` registered via `pi.extensions`.
 - `/session-manager on|off|status` user command with default-No confirmation
@@ -26,5 +26,8 @@ V1 implementation in progress through Task 5.
   `pi_fleet_force_close` tools, including stable-ID revalidation and protection
   for actively viewed human windows.
 
-Root integration, final package documentation, and mandatory live user
-acceptance remain before V1 completion.
+- Complete standalone documentation: GitHub/local installation, Pi and tmux
+  requirements, authorization UX, direct tmux attachment, tool examples,
+  ownership tags/source of truth, force-close warning, and V1 limits.
+- Package repository and homepage metadata added for distribution.
+- Mandatory live user acceptance remains before V1 completion.

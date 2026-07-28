@@ -27,6 +27,11 @@
   },
   "license": "MIT",
   "author": "Nicholas Moen",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arcanemachine/pi-session-manager.git"
+  },
+  "homepage": "https://github.com/arcanemachine/pi-session-manager",
   "files": [
     "src",
     "README.md",
