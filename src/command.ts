@@ -91,7 +91,10 @@ export function registerCommand(pi: ExtensionAPI): void {
           setAuthorized(true);
           ctx.ui.notify("Session Manager enabled.", "info");
         } else {
-          ctx.ui.notify("Session Manager remains disabled.", "info");
+          ctx.ui.notify(
+            `Session Manager remains ${isAuthorized() ? "enabled" : "disabled"}.`,
+            "info",
+          );
         }
         return;
       }
@@ -101,7 +104,10 @@ export function registerCommand(pi: ExtensionAPI): void {
           setAuthorized(false);
           ctx.ui.notify("Session Manager disabled.", "info");
         } else {
-          ctx.ui.notify("Session Manager remains enabled.", "info");
+          ctx.ui.notify(
+            `Session Manager remains ${isAuthorized() ? "enabled" : "disabled"}.`,
+            "info",
+          );
         }
         return;
       }

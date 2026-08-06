@@ -129,6 +129,32 @@ describe("/session-manager command", () => {
     expect(isAuthorized()).toBe(true);
   });
 
+  it("on cancellation while enabled reports that authorization remains enabled", async () => {
+    const handler = getCommand(commands);
+    await handler("on", createCommandContext({ nextSelect: "Yes" }));
+
+    const ctx = createCommandContext({ nextSelect: undefined });
+    await handler("on", ctx);
+
+    expect(isAuthorized()).toBe(true);
+    expect(ctx.ui.notifies).toContainEqual({
+      message: "Session Manager remains enabled.",
+      type: "info",
+    });
+  });
+
+  it("off cancellation while disabled reports that authorization remains disabled", async () => {
+    const handler = getCommand(commands);
+    const ctx = createCommandContext({ nextSelect: undefined });
+    await handler("off", ctx);
+
+    expect(isAuthorized()).toBe(false);
+    expect(ctx.ui.notifies).toContainEqual({
+      message: "Session Manager remains disabled.",
+      type: "info",
+    });
+  });
+
   it("off requires confirmation defaulting to No and keeps authorization when not confirmed", async () => {
     const handler = getCommand(commands);
     const enableCtx = createCommandContext({ nextSelect: "Yes" });
