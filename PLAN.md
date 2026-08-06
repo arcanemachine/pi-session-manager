@@ -1,11 +1,11 @@
 ---
 title: Pi Session Manager V1
-status: execution-paused
+status: execution-in-progress
 artifact_type: implementation-plan
 scope: standalone Pi extension package
 implementation_authority: task-by-task user authorization
-current_task: Task 7 — Full verification and user acceptance (paused during live UAT)
-current_owner: unassigned
+current_task: Task 7 — Full verification and user acceptance
+current_owner: pi-session-manager-coordinator
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
@@ -22,12 +22,12 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local format, typecheck, test, and diff verification.
 - **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local format, typecheck, test, and diff verification, and correction of stale package status text introduced by completed Tasks 2–5.
 - **Task 6 — Documentation and superproject integration:** Accepted after implementation, Architect/coordinator review, package-local format, typecheck, test, package dry-run, and root integration verification. Root manifests load/list the package, resolve the required Pi extension API `0.80.10`, and pass applicable root typecheck/test validation.
-- **Task 7 — Full verification and user acceptance:** Paused during live UAT. Steps 1–2 and 4–10 passed; separate-process authorization isolation also passed. Step 11 retained exited worker 1 and exposed missing readable list details; the bounded renderer/test correction passed independent format, typecheck, full-test, and diff verification but has not yet been loaded into the live Manager or retested. A second live defect is open: declining `/session-manager on` while authorization is already enabled leaves state unchanged but incorrectly notifies `Session Manager remains disabled.` because `src/command.ts` hard-codes the declined-`on` message. Resume with a bounded command-notification correction and tests, then reload the existing Manager, verify authorization retention, and retest the corrected list output before continuing at close behavior.
+- **Task 7 — Full verification and user acceptance:** In progress during live UAT. Steps 1–2 and 4–10 passed; separate-process authorization isolation also passed. Step 11 retained exited worker 1 and exposed missing readable list details; the bounded renderer/test correction passed independent format, typecheck, full-test, and diff verification but still needs live reload/retest. The state-incorrect cancellation notification correction in child commit `5ae6969` passed Architect review and independent format, typecheck, full-test, and diff verification; live default-No/status behavior remains to be retested. Continue by reloading the existing Manager, verifying authorization retention, retesting corrected list output, then proceed at close behavior.
 - **External publishing constraint:** The unscoped npm name `pi-session-manager@0.1.0` is already owned by an unrelated registry package. The plan fixes this package’s unscoped name, so npm publication requires a separate ownership-transfer decision; Git and local installation are documented and verified.
 - **Outstanding Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. Real-TUI `/reload` authorization retention remains pending.
 - **Outstanding Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
 - **Outstanding Task 3 live verification:** Batched individual creation, one-based windows, normal real Pi TUIs, manual attachment, and multiple fleets passed live UAT. No live acceptance gap remains for the Task 3 surface.
-- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list detail retest remains blocked on loading the accepted renderer correction.
+- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list detail retest remains pending after loading the accepted renderer correction.
 - **Outstanding Task 5 live verification:** Dead-only close, live-close rejection, force-close confirmation/success, attached-human protection, manual deletion, untagged-object handling, and final-session disappearance remain pending.
 
 ### Advancement protocol
