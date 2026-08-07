@@ -22,12 +22,12 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local format, typecheck, test, and diff verification.
 - **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local format, typecheck, test, and diff verification, and correction of stale package status text introduced by completed Tasks 2–5.
 - **Task 6 — Documentation and superproject integration:** Accepted after implementation, Architect/coordinator review, package-local format, typecheck, test, package dry-run, and root integration verification. Root manifests load/list the package, resolve the required Pi extension API `0.80.10`, and pass applicable root typecheck/test validation.
-- **Task 7 — Full verification and user acceptance:** In progress during live UAT. Steps 1–2 and 4–10 passed; separate-process authorization isolation also passed. Step 11 retained exited worker 1 and exposed missing readable list details; the bounded renderer/test correction passed independent format, typecheck, full-test, and diff verification but still needs live reload/retest. The state-incorrect cancellation notification correction in child commit `5ae6969` passed Architect review and independent format, typecheck, full-test, and diff verification; live default-No/status behavior remains to be retested. Continue by reloading the existing Manager, verifying authorization retention, retesting corrected list output, then proceed at close behavior.
+- **Task 7 — Full verification and user acceptance:** In progress during live UAT. Steps 1–2 and 4–11 passed; separate-process authorization isolation also passed. The corrected readable list output passed live retest for retained exited worker 1, including exit status, signal availability, and exit time. After the state-incorrect cancellation notification correction passed review and independent verification, the user approved a superseding authorization UX: `/session-manager configure` uses Pi’s native selector with the current state first/default, `/session-manager status` remains, and direct `on`/`off` arguments are removed. Implement and verify that approved redesign, then live-retest configuration and reload retention before proceeding at close behavior.
 - **External publishing constraint:** The unscoped npm name `pi-session-manager@0.1.0` is already owned by an unrelated registry package. The plan fixes this package’s unscoped name, so npm publication requires a separate ownership-transfer decision; Git and local installation are documented and verified.
-- **Outstanding Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. Real-TUI `/reload` authorization retention remains pending.
+- **Outstanding Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. The approved `configure` selector behavior and real-TUI `/reload` authorization retention remain pending.
 - **Outstanding Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
 - **Outstanding Task 3 live verification:** Batched individual creation, one-based windows, normal real Pi TUIs, manual attachment, and multiple fleets passed live UAT. No live acceptance gap remains for the Task 3 surface.
-- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list detail retest remains pending after loading the accepted renderer correction.
+- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list details passed live retest, including exit status `0`, unavailable signal, and available exit time.
 - **Outstanding Task 5 live verification:** Dead-only close, live-close rejection, force-close confirmation/success, attached-human protection, manual deletion, untagged-object handling, and final-session disappearance remain pending.
 
 ### Advancement protocol
@@ -410,11 +410,10 @@ Do not add inter-agent’s generation, TTL, session ID, one-use consumption, or 
 
 ### 12.2 User command
 
-Register one command:
+Register one command with two arguments:
 
 ```text
-/session-manager on
-/session-manager off
+/session-manager configure
 /session-manager status
 ```
 
@@ -423,14 +422,14 @@ Behavior:
 - Trim and parse one argument.
 - With no/unknown argument, show concise usage without changing state.
 - `status` reports enabled/disabled using a transient notification only.
-- `on` and `off` reject outside interactive TUI or without a real UI.
-- Both state changes require an actual two-choice user prompt with **No selected by default**.
-- If the basic Pi confirm widget cannot guarantee No as the initial selection, use `ctx.ui.select()` with `No` as the first/default item and `Yes` as the deliberate second item. Do not silently assume default selection.
-- Cancellation or No leaves state unchanged.
-- A successful state change produces a concise notification.
+- `configure` rejects outside interactive TUI or without a real UI.
+- `configure` uses Pi’s native `ctx.ui.select()` with exactly two labels, `On` and `Off`; do not build a custom selector.
+- Because the native selector highlights its first option, order the choices dynamically so the actual current state is first/default: `Off`, `On` while disabled and `On`, `Off` while enabled. One Up/Down action therefore reaches the opposite state.
+- The prompt must show the actual current state and visibly state that enabling grants this Pi agent visibility and process/window lifecycle authority over the dedicated fleet, including force termination.
+- Selecting the opposite state applies it. Selecting the current state or cancelling leaves it unchanged. Always notify the resulting actual state concisely.
+- Do not add a secondary Yes/No confirmation.
+- Do not register or autocomplete direct `on` or `off` arguments.
 - Do not set a footer status, widget, title, custom entry, or persistent transcript item.
-
-Suggested confirmation text must state that enabling grants this Pi agent visibility and process/window lifecycle authority over the dedicated fleet, including force termination. Disabling text may be shorter but still requires human confirmation so an injected command cannot revoke authority silently.
 
 ### 12.3 Tool authorization guard
 
@@ -439,7 +438,7 @@ Every tool must call one shared guard before inspecting tmux or revealing fleet 
 An unauthorized call must fail with a minimal, actionable error equivalent to:
 
 ```text
-Session Manager is disabled. The user must run /session-manager on and confirm access. Do not retry until the user enables it.
+Session Manager is disabled. The user must run /session-manager configure and select On. Do not retry until the user enables it.
 ```
 
 Signal tool failure by throwing as Pi’s extension API requires. Do not return an ordinary-success result containing an error string.
@@ -705,7 +704,7 @@ Every guideline must name the relevant tool explicitly, because Pi appends tool 
 
 Required intent:
 
-- Session Manager tools require prior user authorization through `/session-manager on`.
+- Session Manager tools require prior user authorization through `/session-manager configure`, with the user selecting `On`.
 - If a call reports disabled, do not retry or try to enable it; wait for the user.
 - Use `pi_fleet_create` only for normal interactive Pi TUI instances.
 - Use `pi_fleet_view` for bounded observation, not as task-completion evidence.
@@ -842,9 +841,9 @@ Create the independent package foundation:
 - TypeScript configuration;
 - license, README skeleton, changelog, and package guidance;
 - process-global authorization helper;
-- `/session-manager on|off|status` command;
+- `/session-manager configure|status` command;
 - five registered tool skeletons with static metadata and common authorization rejection;
-- focused unit tests for authorization lifetime helper, command parsing, default-No behavior, and stable tool registration.
+- focused unit tests for authorization lifetime, command parsing, current-state-default selector behavior, and stable tool registration.
 
 Verification:
 
@@ -1045,7 +1044,7 @@ The final owner must guide the user through:
 
 1. Start a Manager Pi with the extension loaded.
 2. Confirm tools are visible but calls fail while disabled.
-3. Run `/session-manager on`; verify default-No confirmation and deliberately enable.
+3. Run `/session-manager configure` while disabled; verify `Off` is first/default, move once to `On`, enable, then reopen it and verify `On` is first/default.
 4. Submit one batch containing individual create calls for `myproject-worker` instances 1, 2, and 3.
 5. Verify all create sequentially and become separate one-based windows.
 6. Create another fleet such as `myproject-reviewer` to verify multiple sessions in one dedicated server.
@@ -1064,7 +1063,7 @@ The final owner must guide the user through:
 19. Run `/reload`; verify authorization remains enabled without a persistent status item.
 20. Run `/session-manager status`; verify enabled.
 21. Start a separate Pi process; verify Session Manager begins disabled there.
-22. Disable the Manager Pi with `/session-manager off` and human confirmation; verify all tools reject again.
+22. Run `/session-manager configure` while enabled; verify `On` is first/default, move once to `Off`, disable, and verify all tools reject again.
 23. Confirm the user’s default tmux server and unrelated sessions were never modified.
 
 Do not use valuable sessions for force-close acceptance. Use explicitly disposable workers.
@@ -1158,6 +1157,8 @@ A future user-invoked selector might emit or execute safe tmux navigation, but V
 - **Session-entry authorization:** Rejected because it survives process restart/session history and has the wrong lifetime.
 - **Free-text force-close reason:** Rejected as ceremonial; the explicit tool, Boolean, and state checks are sufficient.
 - **Bulk create tool:** Rejected because ordinary batched singular tool calls already exist.
+- **Direct `on`/`off` authorization arguments:** Superseded by one `/session-manager configure` native selector so the current state is visible and selected before any change.
+- **Custom authorization selector:** Rejected; Pi’s native selector is sufficient when the current state is dynamically ordered first, avoiding extra UI machinery.
 - **Persistent status indicator:** Rejected; the user can request `/session-manager status`.
 - **Automatic readiness detection:** Rejected; tmux can report process/window state but not semantic Pi readiness.
 - **Automatic graceful shutdown integration:** Deferred to complementary control systems; Session Manager only hosts and removes tmux windows.
