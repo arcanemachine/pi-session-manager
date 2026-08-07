@@ -22,7 +22,7 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local format, typecheck, test, and diff verification.
 - **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local format, typecheck, test, and diff verification, and correction of stale package status text introduced by completed Tasks 2–5.
 - **Task 6 — Documentation and superproject integration:** Accepted after implementation, Architect/coordinator review, package-local format, typecheck, test, package dry-run, and root integration verification. Root manifests load/list the package, resolve the required Pi extension API `0.80.10`, and pass applicable root typecheck/test validation.
-- **Task 7 — Full verification and user acceptance:** In progress during live UAT. Steps 1–2 and 4–11 passed; separate-process authorization isolation also passed. The corrected readable list output passed live retest for retained exited worker 1, including exit status, signal availability, and exit time. After the state-incorrect cancellation notification correction passed review and independent verification, the user approved a superseding authorization UX: `/session-manager configure` uses Pi’s native selector with the current state first/default, `/session-manager status` remains, and direct `on`/`off` arguments are removed. Implement and verify that approved redesign, then live-retest configuration and reload retention before proceeding at close behavior.
+- **Task 7 — Full verification and user acceptance:** In progress during live UAT. Steps 1–2 and 4–11 passed; separate-process authorization isolation also passed. The corrected readable list output passed live retest for retained exited worker 1, including exit status, signal availability, and exit time. The approved authorization UX—native `/session-manager configure` selector with the current state first/default, retained `status`, and no direct `on`/`off` arguments—passed Architect review and independent format, typecheck, full-test, and diff verification. Live-retest configuration and reload retention before proceeding at close behavior.
 - **External publishing constraint:** The unscoped npm name `pi-session-manager@0.1.0` is already owned by an unrelated registry package. The plan fixes this package’s unscoped name, so npm publication requires a separate ownership-transfer decision; Git and local installation are documented and verified.
 - **Outstanding Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. The approved `configure` selector behavior and real-TUI `/reload` authorization retention remain pending.
 - **Outstanding Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
@@ -1014,7 +1014,7 @@ Cover:
 - all tools remain registered while disabled;
 - every disabled tool rejects before querying tmux;
 - user command unavailable outside TUI for state changes;
-- default-No cancellation;
+- current-state-first native selector behavior, including cancellation and selecting the current state;
 - authorization survives real `/reload`;
 - authorization survives same-process session replacement;
 - authorization does not survive process exit;
