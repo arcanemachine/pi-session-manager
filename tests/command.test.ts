@@ -45,136 +45,166 @@ describe("/session-manager command", () => {
     expect(cmd).toBeDefined();
     const completions = cmd!.definition.getArgumentCompletions?.("") ?? [];
     const values = completions.map((c) => c.value);
-    expect(values).toEqual(["on", "off", "status"]);
+    expect(values).toEqual(["configure", "status"]);
+    expect(cmd!.definition.getArgumentCompletions?.("on")).toBeNull();
+    expect(cmd!.definition.getArgumentCompletions?.("off")).toBeNull();
   });
 
   it("shows usage and does not change state for no or unknown argument", async () => {
     const handler = getCommand(commands);
     const ctx = createCommandContext();
     await handler("", ctx);
+    await handler("on", ctx);
+    await handler("off", ctx);
     await handler("bogus", ctx);
     expect(isAuthorized()).toBe(false);
-    expect(ctx.ui.notifies.some((n) => n.message.startsWith("Usage:"))).toBe(
-      true,
-    );
+    expect(ctx.ui.selects).toHaveLength(0);
+    expect(ctx.ui.notifies).toHaveLength(4);
+    expect(
+      ctx.ui.notifies.every((n) =>
+        n.message.startsWith("Usage: /session-manager configure | status"),
+      ),
+    ).toBe(true);
   });
 
   it("status reports the current state without changing it", async () => {
     const handler = getCommand(commands);
     const ctx1 = createCommandContext();
     await handler("status", ctx1);
-    expect(ctx1.ui.notifies.some((n) => n.message.includes("disabled"))).toBe(
-      true,
-    );
+    expect(ctx1.ui.notifies).toContainEqual({
+      message: "Session Manager is disabled.",
+      type: "info",
+    });
+    expect(isAuthorized()).toBe(false);
 
-    const ctx2 = createCommandContext({ nextSelect: "Yes" });
-    await handler("on", ctx2);
-    const ctx3 = createCommandContext();
-    await handler("status", ctx3);
-    expect(ctx3.ui.notifies.some((n) => n.message.includes("enabled"))).toBe(
-      true,
-    );
+    await handler("configure", createCommandContext({ nextSelect: "On" }));
+    const ctx2 = createCommandContext();
+    await handler("status", ctx2);
+    expect(ctx2.ui.notifies).toContainEqual({
+      message: "Session Manager is enabled.",
+      type: "info",
+    });
+    expect(isAuthorized()).toBe(true);
   });
 
-  it("on requires interactive TUI mode", async () => {
+  it("configure requires interactive TUI mode", async () => {
     const handler = getCommand(commands);
     const ctx = createCommandContext({
       mode: "rpc",
       hasUI: true,
-      nextSelect: "Yes",
+      nextSelect: "On",
     });
-    await expect(handler("on", ctx)).rejects.toMatchObject({
+    await expect(handler("configure", ctx)).rejects.toMatchObject({
       code: ErrorCode.TUI_REQUIRED,
     });
     expect(isAuthorized()).toBe(false);
   });
 
-  it("on requires a real UI", async () => {
+  it("configure requires a real UI", async () => {
     const handler = getCommand(commands);
     const ctx = createCommandContext({
       mode: "tui",
       hasUI: false,
-      nextSelect: "Yes",
+      nextSelect: "On",
     });
-    await expect(handler("on", ctx)).rejects.toMatchObject({
+    await expect(handler("configure", ctx)).rejects.toMatchObject({
       code: ErrorCode.TUI_REQUIRED,
     });
     expect(isAuthorized()).toBe(false);
   });
 
-  it("on confirms with No selected by default and leaves state unchanged", async () => {
-    const handler = getCommand(commands);
-    const ctx = createCommandContext({ nextSelect: undefined }); // cancellation / No
-    await handler("on", ctx);
-    expect(isAuthorized()).toBe(false);
-    // The confirm prompt presents No first.
-    expect(ctx.ui.selects[0]?.options).toEqual(["No", "Yes"]);
-  });
-
-  it("on confirm prompt visibly warns of authority and force termination", async () => {
+  it("shows the disabled state first and warns about authority", async () => {
     const handler = getCommand(commands);
     const ctx = createCommandContext({ nextSelect: undefined });
-    await handler("on", ctx);
+    await handler("configure", ctx);
+
+    expect(isAuthorized()).toBe(false);
+    expect(ctx.ui.selects).toHaveLength(1);
+    expect(ctx.ui.selects[0]?.options).toEqual(["Off", "On"]);
     const prompt = ctx.ui.selects[0]?.title ?? "";
-    // The authority/force-termination warning must be visible in the selector.
+    expect(prompt).toContain(
+      "Session Manager authorization is currently disabled.",
+    );
     expect(prompt).toContain("visibility");
     expect(prompt).toMatch(/force[- ]?termination|force termination/i);
-    expect(ctx.ui.selects[0]?.options).toEqual(["No", "Yes"]);
-  });
-
-  it("on enables authorization when the user deliberately selects Yes", async () => {
-    const handler = getCommand(commands);
-    const ctx = createCommandContext({ nextSelect: "Yes" });
-    await handler("on", ctx);
-    expect(isAuthorized()).toBe(true);
-  });
-
-  it("on cancellation while enabled reports that authorization remains enabled", async () => {
-    const handler = getCommand(commands);
-    await handler("on", createCommandContext({ nextSelect: "Yes" }));
-
-    const ctx = createCommandContext({ nextSelect: undefined });
-    await handler("on", ctx);
-
-    expect(isAuthorized()).toBe(true);
     expect(ctx.ui.notifies).toContainEqual({
-      message: "Session Manager remains enabled.",
+      message: "Session Manager is disabled.",
       type: "info",
     });
   });
 
-  it("off cancellation while disabled reports that authorization remains disabled", async () => {
+  it("enables authorization when the user selects the opposite state", async () => {
     const handler = getCommand(commands);
-    const ctx = createCommandContext({ nextSelect: undefined });
-    await handler("off", ctx);
+    const ctx = createCommandContext({ nextSelect: "On" });
+    await handler("configure", ctx);
 
-    expect(isAuthorized()).toBe(false);
+    expect(isAuthorized()).toBe(true);
+    expect(ctx.ui.selects[0]?.options).toEqual(["Off", "On"]);
     expect(ctx.ui.notifies).toContainEqual({
-      message: "Session Manager remains disabled.",
+      message: "Session Manager is enabled.",
       type: "info",
     });
   });
 
-  it("off requires confirmation defaulting to No and keeps authorization when not confirmed", async () => {
+  it("shows the enabled state first and disables on the opposite selection", async () => {
     const handler = getCommand(commands);
-    const enableCtx = createCommandContext({ nextSelect: "Yes" });
-    await handler("on", enableCtx);
-    expect(isAuthorized()).toBe(true);
+    await handler("configure", createCommandContext({ nextSelect: "On" }));
 
-    const offCtx = createCommandContext({ nextSelect: undefined });
-    await handler("off", offCtx);
-    expect(isAuthorized()).toBe(true);
-    expect(offCtx.ui.selects[0]?.options).toEqual(["No", "Yes"]);
+    const ctx = createCommandContext({ nextSelect: "Off" });
+    await handler("configure", ctx);
+
+    expect(isAuthorized()).toBe(false);
+    expect(ctx.ui.selects[0]?.options).toEqual(["On", "Off"]);
+    const prompt = ctx.ui.selects[0]?.title ?? "";
+    expect(prompt).toContain(
+      "Session Manager authorization is currently enabled.",
+    );
+    expect(ctx.ui.notifies).toContainEqual({
+      message: "Session Manager is disabled.",
+      type: "info",
+    });
   });
 
-  it("off disables authorization when the user deliberately selects Yes", async () => {
+  it("leaves authorization unchanged when the current state is selected", async () => {
     const handler = getCommand(commands);
-    const enableCtx = createCommandContext({ nextSelect: "Yes" });
-    await handler("on", enableCtx);
 
-    const offCtx = createCommandContext({ nextSelect: "Yes" });
-    await handler("off", offCtx);
+    const disabledCtx = createCommandContext({ nextSelect: "Off" });
+    await handler("configure", disabledCtx);
     expect(isAuthorized()).toBe(false);
+    expect(disabledCtx.ui.notifies).toContainEqual({
+      message: "Session Manager is disabled.",
+      type: "info",
+    });
+
+    await handler("configure", createCommandContext({ nextSelect: "On" }));
+    const enabledCtx = createCommandContext({ nextSelect: "On" });
+    await handler("configure", enabledCtx);
+    expect(isAuthorized()).toBe(true);
+    expect(enabledCtx.ui.notifies).toContainEqual({
+      message: "Session Manager is enabled.",
+      type: "info",
+    });
+  });
+
+  it("leaves authorization unchanged when configuration is cancelled", async () => {
+    const handler = getCommand(commands);
+
+    const disabledCtx = createCommandContext({ nextSelect: undefined });
+    await handler("configure", disabledCtx);
+    expect(isAuthorized()).toBe(false);
+    expect(disabledCtx.ui.notifies).toContainEqual({
+      message: "Session Manager is disabled.",
+      type: "info",
+    });
+
+    await handler("configure", createCommandContext({ nextSelect: "On" }));
+    const enabledCtx = createCommandContext({ nextSelect: undefined });
+    await handler("configure", enabledCtx);
+    expect(isAuthorized()).toBe(true);
+    expect(enabledCtx.ui.notifies).toContainEqual({
+      message: "Session Manager is enabled.",
+      type: "info",
+    });
   });
 
   it("throws typed SessionManagerError outside TUI", async () => {
@@ -182,7 +212,7 @@ describe("/session-manager command", () => {
     const ctx = createCommandContext({ mode: "print", hasUI: false });
     let caught: unknown;
     try {
-      await handler("on", ctx);
+      await handler("configure", ctx);
     } catch (e) {
       caught = e;
     }

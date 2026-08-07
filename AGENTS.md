@@ -27,8 +27,10 @@ command. It is NOT persisted anywhere:
   pass it through worker arguments, or store it in tmux options.
 - Never change tool registration or tool activation (`pi.setActiveTools()`) as
   part of authorization. All five tools are always registered and always active.
-- `on`/`off` require interactive TUI mode with a real two-choice prompt
-  defaulting to No. Keep that default-No behavior intact if you touch the command.
+- `configure` requires interactive TUI mode with a real native selector. It
+  presents exactly `On` and `Off`, with the current state first/default. Keep
+  the current-state ordering and visible authority warning if you touch the
+  command.
 
 If you need a clean slate in tests, use `resetAuthorization()` from
 `src/authorization.ts`. It is a test seam only — never register it as a command

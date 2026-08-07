@@ -7,7 +7,7 @@ import { registerTools } from "./tools.js";
  * pi-session-manager extension entry point.
  *
  * Hosts fleets of normal interactive Pi TUI processes in a dedicated tmux
- * server. The `/session-manager on|off|status` command and five
+ * server. The `/session-manager configure|status` command and five
  * always-registered authorization-gated tools are registered here. Tasks 1–5
  * implement authorization, tmux hosting, observation, creation, and window
  * removal; package integration and live acceptance remain later work.

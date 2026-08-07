@@ -112,7 +112,7 @@ export const TOOL_TRUE_DESCRIPTION =
  * appends guidelines flat with no tool-name prefix.
  */
 function disabledGuidance(tool: string): string {
-  return `If a ${tool} call reports Session Manager is disabled, do not retry ${tool} and do not attempt to enable it yourself; wait for the user to run /session-manager on.`;
+  return `If a ${tool} call reports Session Manager is disabled, do not retry ${tool} and do not attempt to enable it yourself; wait for the user to run /session-manager configure and select On.`;
 }
 
 export const TOOL_GUIDELINES: Record<
@@ -120,23 +120,23 @@ export const TOOL_GUIDELINES: Record<
   string[]
 > = {
   [TOOL_LIST]: [
-    `Call ${TOOL_LIST} only after the user runs /session-manager on. ${TOOL_LIST} reports managed fleets and instances; it is observation, not task-completion evidence.`,
+    `Call ${TOOL_LIST} only after the user runs /session-manager configure and selects On. ${TOOL_LIST} reports managed fleets and instances; it is observation, not task-completion evidence.`,
     disabledGuidance(TOOL_LIST),
   ],
   [TOOL_VIEW]: [
-    `Call ${TOOL_VIEW} only after the user runs /session-manager on. Use ${TOOL_VIEW} for bounded terminal observation of one Pi instance, never as proof of task completion.`,
+    `Call ${TOOL_VIEW} only after the user runs /session-manager configure and selects On. Use ${TOOL_VIEW} for bounded terminal observation of one Pi instance, never as proof of task completion.`,
     disabledGuidance(TOOL_VIEW),
   ],
   [TOOL_CREATE]: [
-    `Call ${TOOL_CREATE} only after the user runs /session-manager on. Use ${TOOL_CREATE} only to start normal interactive Pi TUI instances in the dedicated fleet.`,
+    `Call ${TOOL_CREATE} only after the user runs /session-manager configure and selects On. Use ${TOOL_CREATE} only to start normal interactive Pi TUI instances in the dedicated fleet.`,
     disabledGuidance(TOOL_CREATE),
   ],
   [TOOL_CLOSE]: [
-    `Call ${TOOL_CLOSE} only after the user runs /session-manager on. End a worker Pi gracefully through the user or the appropriate control mechanism before calling ${TOOL_CLOSE}, which removes only an exited managed window.`,
+    `Call ${TOOL_CLOSE} only after the user runs /session-manager configure and selects On. End a worker Pi gracefully through the user or the appropriate control mechanism before calling ${TOOL_CLOSE}, which removes only an exited managed window.`,
     disabledGuidance(TOOL_CLOSE),
   ],
   [TOOL_FORCE_CLOSE]: [
-    `Call ${TOOL_FORCE_CLOSE} only after the user runs /session-manager on and when a live instance genuinely must be terminated and ordinary graceful control is unavailable or has failed. Never call ${TOOL_FORCE_CLOSE} merely to tidy a fleet or because an instance is slow.`,
+    `Call ${TOOL_FORCE_CLOSE} only after the user runs /session-manager configure and selects On, and when a live instance genuinely must be terminated and ordinary graceful control is unavailable or has failed. Never call ${TOOL_FORCE_CLOSE} merely to tidy a fleet or because an instance is slow.`,
     disabledGuidance(TOOL_FORCE_CLOSE),
   ],
 };

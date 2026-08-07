@@ -40,20 +40,22 @@ No superproject checkout or sibling Pi package is required for normal use.
 ## Authorization
 
 All five Session Manager tools are registered at all times, but they deny every
-operation until a human enables authorization in the Manager Pi's interactive
-TUI:
+operation until a human configures authorization in the Manager Pi's
+interactive TUI:
 
 ```text
-/session-manager on
-/session-manager off
+/session-manager configure
 /session-manager status
 ```
 
-`on` and `off` each show a two-choice confirmation with **No** selected by
-default. Authorization is process-local: it survives `/reload`, `/new`,
-`/resume`, and `/fork` in that same Pi process, but not process exit. It is not
-written to the transcript, files, environment, tmux metadata, or worker
-arguments, and it never propagates to launched workers.
+`configure` uses Pi's native selector with exactly `On` and `Off`. The current
+state is first/default (`Off`, `On` while disabled; `On`, `Off` while enabled),
+and the prompt warns that enabling grants visibility and process/window
+lifecycle authority, including force termination. Selecting the current state
+or cancelling leaves authorization unchanged. Authorization is process-local:
+it survives `/reload`, `/new`, `/resume`, and `/fork` in that same Pi process,
+but not process exit. It is not written to the transcript, files, environment,
+tmux metadata, or worker arguments, and it never propagates to launched workers.
 
 ## Fleets and tmux
 

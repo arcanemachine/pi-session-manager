@@ -4,8 +4,8 @@ import { DISABLED_MESSAGE, ErrorCode, SessionManagerError } from "./errors.js";
  * Process-local authorization for Session Manager.
  *
  * Authorization is a single in-process Boolean that gates every agent tool. It
- * is granted only by a human through the `/session-manager on` command and
- * removed only through `/session-manager off`.
+ * is configured only by a human through the `/session-manager configure`
+ * command.
  *
  * Lifetime contract (PLAN.md section 12.1):
  * - Authorization is OFF by default.

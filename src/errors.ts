@@ -51,4 +51,4 @@ export class SessionManagerError extends Error {
 
 /** Standardized denial message returned while authorization is off. */
 export const DISABLED_MESSAGE =
-  "Session Manager is disabled. The user must run /session-manager on and confirm access. Do not retry until the user enables it.";
+  "Session Manager is disabled. The user must run /session-manager configure and select On. Do not retry until the user enables it.";
