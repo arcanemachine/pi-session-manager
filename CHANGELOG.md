@@ -2,7 +2,7 @@
 
 ## 0.1.0
 
-V1 implementation is complete through Task 6. Mandatory live user acceptance remains before release completion.
+V1 implementation and mandatory live acceptance evidence are complete. Publication under the current npm name remains separately constrained.
 
 - Pi extension `pi-session-manager` registered via `pi.extensions`.
 - `/session-manager configure|status` user command using a native `On`/`Off`
@@ -32,4 +32,4 @@ V1 implementation is complete through Task 6. Mandatory live user acceptance rem
   requirements, authorization UX, direct tmux attachment, tool examples,
   ownership tags/source of truth, force-close warning, and V1 limits.
 - Package repository and homepage metadata added for distribution.
-- Mandatory live user acceptance remains before V1 completion.
+- Mandatory live user acceptance evidence completed for the V1 contract.

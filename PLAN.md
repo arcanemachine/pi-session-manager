@@ -1,11 +1,11 @@
 ---
 title: Pi Session Manager V1
-status: execution-in-progress
+status: technical-verification-complete
 artifact_type: implementation-plan
 scope: standalone Pi extension package
 implementation_authority: task-by-task user authorization
-current_task: Task 7 — Full verification and user acceptance
-current_owner: pi-session-manager-coordinator
+current_task: Task 7 — Full verification and user acceptance (technical verification complete; final product decision pending)
+current_owner: unassigned
 ---
 
 # Pi Session Manager V1 — Executable Implementation Plan
@@ -22,13 +22,13 @@ This section is the durable coordination record for execution across sessions. T
 - **Task 4 — List and view tools:** Accepted after implementation, correction, Architect/coordinator review, and independent package-local format, typecheck, test, and diff verification.
 - **Task 5 — Close and force-close tools:** Accepted after implementation, Architect/coordinator review, independent package-local format, typecheck, test, and diff verification, and correction of stale package status text introduced by completed Tasks 2–5.
 - **Task 6 — Documentation and superproject integration:** Accepted after implementation, Architect/coordinator review, package-local format, typecheck, test, package dry-run, and root integration verification. Root manifests load/list the package, resolve the required Pi extension API `0.80.10`, and pass applicable root typecheck/test validation.
-- **Task 7 — Full verification and user acceptance:** Technical UAT steps 1–3 and 4–23 passed, with step 23 carrying an explicit external-baseline-drift caveat; separate-process authorization isolation also passed. Safe cleanup then completed: worker 2 exited normally and was removed with dead-only `pi_fleet_close`, the untagged diagnostic was manually removed through the explicit socket, the dedicated fleet server disappeared, and authorization was disabled again. The corrected readable list output passed live retest for retained exited worker 1, including exit status, signal availability, and exit time; the approved native `/session-manager configure` UX passed Architect review, independent format/typecheck/full-test/diff verification, and live both-direction testing. No force-close was used during cleanup. Technical verification is complete; explicit final product acceptance remains a user decision.
+- **Task 7 — Full verification and user acceptance:** Technical UAT steps 1–23 passed, with step 23 carrying an explicit external-baseline-drift caveat; separate-process authorization isolation also passed. Safe cleanup then completed: worker 2 exited normally and was removed with dead-only `pi_fleet_close`, the untagged diagnostic was manually removed through the explicit socket, the dedicated fleet server disappeared, and authorization was disabled again. The corrected readable list output passed live retest for retained exited worker 1, including exit status, signal availability, and exit time; the approved native `/session-manager configure` UX passed Architect review, independent format/typecheck/full-test/diff verification, and live both-direction testing. No force-close was used during cleanup. Technical verification is complete; explicit final product acceptance remains a user decision.
 - **External publishing constraint:** The unscoped npm name `pi-session-manager@0.1.0` is already owned by an unrelated registry package. The plan fixes this package’s unscoped name, so npm publication requires a separate ownership-transfer decision; Git and local installation are documented and verified.
 - **Task 1 live verification:** A launched worker Pi started disabled while the Manager remained enabled, including disabled tool denial. Both native `configure` directions, real-TUI `/reload` authorization retention, transient status, and final disablement passed.
-- **Outstanding Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
-- **Outstanding Task 3 live verification:** Batched individual creation, one-based windows, normal real Pi TUIs, manual attachment, and multiple fleets passed live UAT. No live acceptance gap remains for the Task 3 surface.
-- **Outstanding Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list details passed live retest, including exit status `0`, unavailable signal, and available exit time.
-- **Outstanding Task 5 live verification:** Dead-only close, live-close/confirmation-gate checks, force-close success, attached-human protection, manual deletion, untagged-object handling, and final-session disappearance all passed.
+- **Task 2 live verification:** Real dedicated-server inventory, V1 tags, stable IDs, one-pane topology, and multiple fleets passed read-only corroboration during UAT.
+- **Task 3 live verification:** Batched individual creation, one-based windows, normal real Pi TUIs, manual attachment, and multiple fleets passed live UAT. No live acceptance gap remains for the Task 3 surface.
+- **Task 4 live verification:** Real Pi capture was bounded, useful, and did not change an attached client’s focus. Retained-dead-pane list details passed live retest, including exit status `0`, unavailable signal, and available exit time.
+- **Task 5 live verification:** Dead-only close, live-close/confirmation-gate checks, force-close success, attached-human protection, manual deletion, untagged-object handling, and final-session disappearance all passed.
 
 ### Advancement protocol
 
