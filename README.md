@@ -8,6 +8,8 @@ observes independent Pi processes; it does not assign roles, inspect readiness,
 send prompts or keystrokes, steer work, shut Pi down gracefully, or integrate
 with inter-agent, pi-role, pi-session-snapshot, or pi-subagent.
 
+> Like this extension? See [my other Pi extensions](https://github.com/arcanemachine/pi-projects).
+
 ## Requirements
 
 - Pi extension API 0.80.10 or later
@@ -26,6 +28,12 @@ Update with:
 
 ```bash
 pi update git:github.com/arcanemachine/pi-session-manager
+```
+
+### From npm
+
+```bash
+pi install npm:@arcanemachine/pi-session-manager
 ```
 
 ### From a local clone

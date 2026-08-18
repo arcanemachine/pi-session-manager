@@ -1,6 +1,6 @@
 {
-  "name": "pi-session-manager",
-  "version": "0.1.0",
+  "name": "@arcanemachine/pi-session-manager",
+  "version": "0.1.1",
   "description": "Pi extension hosting fleets of interactive Pi TUI processes in a dedicated tmux server",
   "type": "module",
   "keywords": [

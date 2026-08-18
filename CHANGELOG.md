@@ -1,8 +1,13 @@
 # Changelog
 
+## 0.1.1
+
+- Publish under the scoped npm identity `@arcanemachine/pi-session-manager`.
+- Document the parent Pi extensions project and npm installation.
+
 ## 0.1.0
 
-V1 implementation and mandatory live acceptance evidence are complete. Publication under the current npm name remains separately constrained.
+V1 implementation and mandatory live acceptance evidence are complete.
 
 - Pi extension `pi-session-manager` registered via `pi.extensions`.
 - `/session-manager configure|status` user command using a native `On`/`Off`
