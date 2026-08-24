@@ -8,6 +8,10 @@ observes independent Pi processes; it does not assign roles, inspect readiness,
 send prompts or keystrokes, steer work, shut Pi down gracefully, or integrate
 with inter-agent, pi-role, pi-session-snapshot, or pi-subagent.
 
+For the optional composition with inter-agent Pi—covering readiness, allowlists,
+semantic control, and graceful shutdown—see the
+[canonical composition guide](https://github.com/arcanemachine/inter-agent-pi/blob/main/SESSION_MANAGER.md).
+
 > Like this extension? See [my other Pi extensions](https://github.com/arcanemachine/pi-projects).
 
 ## Requirements
