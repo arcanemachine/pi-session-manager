@@ -46,9 +46,8 @@ import {
  */
 
 const FLEET_DESCRIPTION =
-  "Managed fleet name. Conventionally <project>-<role>, treated as an opaque namespace. Must match [a-z0-9][a-z0-9_-]{0,63}.";
-const INSTANCE_DESCRIPTION =
-  "Positive safe integer instance number, equal to the tmux window index.";
+  "Managed fleet name matching [a-z0-9][a-z0-9_-]{0,63}.";
+const INSTANCE_DESCRIPTION = "tmux window index.";
 
 export const MAX_PI_ARGS = 128;
 export const MAX_PI_ARGS_BYTES = 64 * 1024;
@@ -100,7 +99,7 @@ const SHARED_TOOL_NAMES = [
 ] as const;
 
 export const TOOL_TRUE_DESCRIPTION =
-  "Must be exactly true to confirm intent to terminate the live worker process by removing its managed window.";
+  "Must be true to confirm process termination.";
 
 /**
  * Stable system-prompt guidelines for every tool (PLAN.md section 18). Each
@@ -111,8 +110,8 @@ export const TOOL_TRUE_DESCRIPTION =
  * (PLAN.md section 18). The bullet names the tool it refers to because Pi
  * appends guidelines flat with no tool-name prefix.
  */
-function disabledGuidance(tool: string): string {
-  return `If a ${tool} call reports Session Manager is disabled, do not retry ${tool} and do not attempt to enable it yourself; wait for the user to run /session-manager configure and select On.`;
+function disabledGuidance(_tool: string): string {
+  return "Use pi_fleet_* only after the user enables Session Manager with /session-manager configure. If disabled, do not retry or enable it yourself.";
 }
 
 export const TOOL_GUIDELINES: Record<
@@ -120,23 +119,23 @@ export const TOOL_GUIDELINES: Record<
   string[]
 > = {
   [TOOL_LIST]: [
-    `Call ${TOOL_LIST} only after the user runs /session-manager configure and selects On. ${TOOL_LIST} reports managed fleets and instances; it is observation, not task-completion evidence.`,
+    `${TOOL_LIST} reports inventory; it is not task-completion evidence.`,
     disabledGuidance(TOOL_LIST),
   ],
   [TOOL_VIEW]: [
-    `Call ${TOOL_VIEW} only after the user runs /session-manager configure and selects On. Use ${TOOL_VIEW} for bounded terminal observation of one Pi instance, never as proof of task completion.`,
+    `${TOOL_VIEW} is bounded observation, not task-completion evidence.`,
     disabledGuidance(TOOL_VIEW),
   ],
   [TOOL_CREATE]: [
-    `Call ${TOOL_CREATE} only after the user runs /session-manager configure and selects On. Use ${TOOL_CREATE} only to start normal interactive Pi TUI instances in the dedicated fleet.`,
+    `Use ${TOOL_CREATE} only for normal interactive Pi instances.`,
     disabledGuidance(TOOL_CREATE),
   ],
   [TOOL_CLOSE]: [
-    `Call ${TOOL_CLOSE} only after the user runs /session-manager configure and selects On. End a worker Pi gracefully through the user or the appropriate control mechanism before calling ${TOOL_CLOSE}, which removes only an exited managed window.`,
+    `Stop the worker gracefully first; ${TOOL_CLOSE} removes exited instances only.`,
     disabledGuidance(TOOL_CLOSE),
   ],
   [TOOL_FORCE_CLOSE]: [
-    `Call ${TOOL_FORCE_CLOSE} only after the user runs /session-manager configure and selects On, and when a live instance genuinely must be terminated and ordinary graceful control is unavailable or has failed. Never call ${TOOL_FORCE_CLOSE} merely to tidy a fleet or because an instance is slow.`,
+    `Use ${TOOL_FORCE_CLOSE} only when graceful termination failed, never for tidying or slowness.`,
     disabledGuidance(TOOL_FORCE_CLOSE),
   ],
 };
@@ -153,13 +152,11 @@ export function registerTools(pi: ExtensionAPI): void {
     name: TOOL_LIST,
     label: "Fleet list",
     description:
-      "List managed Session Manager fleets and instances from the dedicated tmux server. Returns an empty inventory when the server is absent.",
-    promptSnippet: `List managed fleets and instances (${TOOL_LIST})`,
+      "List managed fleets and instances; empty when the dedicated tmux server is absent.",
+    promptSnippet: "List managed fleet inventory.",
     promptGuidelines: TOOL_GUIDELINES[TOOL_LIST],
     parameters: Type.Object({
-      fleet: Type.Optional(
-        Type.String({ description: "Optional fleet filter." }),
-      ),
+      fleet: Type.Optional(Type.String({ description: "Fleet filter." })),
     }),
     async execute(_toolCallId, params, signal) {
       requireAuthorization();
@@ -171,8 +168,8 @@ export function registerTools(pi: ExtensionAPI): void {
     name: TOOL_VIEW,
     label: "Fleet view",
     description:
-      "Return a bounded plain-text terminal view of one managed Pi instance without changing focus. Permitted on both running and exited panes.",
-    promptSnippet: `View a bounded terminal capture of one managed instance (${TOOL_VIEW})`,
+      "Read bounded terminal output from a running or exited managed instance without changing focus.",
+    promptSnippet: "Read managed instance output.",
     promptGuidelines: TOOL_GUIDELINES[TOOL_VIEW],
     parameters: Type.Object({
       fleet: Type.String({ description: FLEET_DESCRIPTION }),
@@ -181,8 +178,7 @@ export function registerTools(pi: ExtensionAPI): void {
         Type.Integer({
           minimum: 1,
           maximum: 500,
-          description:
-            "Lines of scrollback to capture. Defaults to 100; clamped to 500 and to the Pi output ceiling.",
+          description: "Scrollback lines (default 100, maximum 500).",
         }),
       ),
     }),
@@ -196,8 +192,8 @@ export function registerTools(pi: ExtensionAPI): void {
     name: TOOL_CREATE,
     label: "Fleet create",
     description:
-      "Create one normal interactive Pi instance as a managed tmux window in a fleet.",
-    promptSnippet: `Create one managed Pi instance in a fleet (${TOOL_CREATE})`,
+      "Start a normal interactive Pi instance in a managed tmux window.",
+    promptSnippet: "Start a managed Pi instance.",
     promptGuidelines: TOOL_GUIDELINES[TOOL_CREATE],
     executionMode: "sequential",
     parameters: Type.Object({
@@ -209,14 +205,14 @@ export function registerTools(pi: ExtensionAPI): void {
       cwd: Type.Optional(
         Type.String({
           description:
-            "Working directory for the worker. Defaults to the Manager Pi cwd and must resolve to an existing directory.",
+            "Worker cwd; defaults to the manager cwd and must exist.",
         }),
       ),
       piArgs: Type.Optional(
         Type.Array(Type.String({ maxLength: 16_384 }), {
           maxItems: MAX_PI_ARGS,
           description:
-            "Opaque Pi argument array passed directly to pi. At most 128 arguments and 64 KiB UTF-8 encoded size total; each item remains one argument and is never interpreted as shell syntax.",
+            "Opaque pi arguments (64 KiB UTF-8 total), passed without shell interpretation.",
         }),
       ),
     }),
@@ -230,8 +226,8 @@ export function registerTools(pi: ExtensionAPI): void {
     name: TOOL_CLOSE,
     label: "Fleet close",
     description:
-      "Remove one exited managed instance window. Rejects a running pane and a viewed target.",
-    promptSnippet: `Close one exited managed instance (${TOOL_CLOSE})`,
+      "Remove an exited managed instance; rejects running or currently viewed targets.",
+    promptSnippet: "Remove an exited managed instance.",
     promptGuidelines: TOOL_GUIDELINES[TOOL_CLOSE],
     executionMode: "sequential",
     parameters: Type.Object({
@@ -248,8 +244,8 @@ export function registerTools(pi: ExtensionAPI): void {
     name: TOOL_FORCE_CLOSE,
     label: "Fleet force close",
     description:
-      "Force-remove a live managed instance window, terminating its Pi process. Requires explicit confirmation.",
-    promptSnippet: `Force-close a live managed instance, terminating its process (${TOOL_FORCE_CLOSE})`,
+      "Terminate and remove a live managed instance; requires explicit confirmation.",
+    promptSnippet: "Terminate a managed Pi instance.",
     promptGuidelines: TOOL_GUIDELINES[TOOL_FORCE_CLOSE],
     executionMode: "sequential",
     parameters: Type.Object({

@@ -56,29 +56,22 @@ describe("tool registration", () => {
     }
   });
 
-  it("promptGuidelines bullets name their own tool", () => {
+  it("tool-specific prompt guidelines name their own tool", () => {
     for (const name of EXPECTED_TOOLS) {
-      for (const bullet of TOOL_GUIDELINES[name]) {
-        expect(bullet).toContain(name);
-      }
+      expect(TOOL_GUIDELINES[name][0]).toContain(name);
     }
   });
 
-  it("every tool carries static disabled-result guidance: do not retry, do not enable, wait for the user", () => {
-    for (const name of EXPECTED_TOOLS) {
-      const bullets = TOOL_GUIDELINES[name];
-      const disabledBullet = bullets.find((b) =>
-        b.includes("reports Session Manager is disabled"),
-      );
-      expect(
-        disabledBullet,
-        `${name} missing disabled-result guidance`,
-      ).toBeDefined();
-      expect(disabledBullet).toContain(name);
-      expect(disabledBullet).toMatch(/do not retry/);
-      expect(disabledBullet).toMatch(/do not attempt to enable it yourself/);
-      expect(disabledBullet).toMatch(/wait for the user/);
-    }
+  it("shares static disabled-result guidance across all tools", () => {
+    const disabledBullets = EXPECTED_TOOLS.map(
+      (name) => TOOL_GUIDELINES[name][1],
+    );
+    expect(new Set(disabledBullets).size).toBe(1);
+    expect(disabledBullets[0]).toMatch(/pi_fleet_\*/);
+    expect(disabledBullets[0]).toContain("/session-manager configure");
+    expect(disabledBullets[0]).toMatch(/If disabled/);
+    expect(disabledBullets[0]).toMatch(/do not retry/);
+    expect(disabledBullets[0]).toMatch(/do not retry or enable it yourself/);
   });
 
   it("the three mutating tools execute sequentially; list/view do not override the mode", () => {
