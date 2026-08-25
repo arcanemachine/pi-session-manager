@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 - 2026-08-24
+
+- Condense fleet tool prompt metadata while preserving authorization and lifecycle guidance.
+
 ## 0.1.1
 
 - Publish under the scoped npm identity `@arcanemachine/pi-session-manager`.
