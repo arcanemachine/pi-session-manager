@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 - 2026-09-03
+
+- Prevent attached tmux test clients from injecting NUL input that could make bounded capture assertions flaky.
+
 ## 0.1.2 - 2026-08-24
 
 - Condense fleet tool prompt metadata while preserving authorization and lifecycle guidance.
