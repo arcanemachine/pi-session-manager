@@ -418,7 +418,10 @@ describe("TmuxAdapter hermetic integration", () => {
         `${tmuxPath} -S '${fixture.socket}' attach -t alpha-worker`,
         "/dev/null",
       ],
-      { env: { ...process.env, TERM: "xterm" }, stdio: "ignore" },
+      {
+        env: { ...process.env, TERM: "xterm" },
+        stdio: ["pipe", "ignore", "ignore"],
+      },
     );
     fixture.clients.add(client);
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -491,7 +494,10 @@ describe("TmuxAdapter list and view integration", () => {
         `${tmuxPath} -S '${fixture.socket}' attach -t alpha-worker`,
         "/dev/null",
       ],
-      { env: { ...process.env, TERM: "xterm" }, stdio: "ignore" },
+      {
+        env: { ...process.env, TERM: "xterm" },
+        stdio: ["pipe", "ignore", "ignore"],
+      },
     );
     fixture.clients.add(client);
     await new Promise((resolve) => setTimeout(resolve, 250));
