@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 - 2026-09-06
+
+- Include the gallery logo in the published package.
+
 ## 0.1.3 - 2026-09-03
 
 - Prevent attached tmux test clients from injecting NUL input that could make bounded capture assertions flaky.

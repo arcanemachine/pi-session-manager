@@ -1,5 +1,9 @@
 # pi-session-manager
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/arcanemachine/pi-session-manager/main/logo.jpg" alt="Pi mascot managing multiple terminal sessions from a control console" width="250" />
+</p>
+
 A [Pi](https://github.com/badlogic/pi-mono) extension that hosts fleets of
 normal interactive Pi TUI processes in a dedicated tmux server.
 
