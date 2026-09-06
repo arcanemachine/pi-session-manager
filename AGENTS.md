@@ -52,9 +52,11 @@ or tool.
 Run package-local checks only unless explicitly assigned root integration:
 
 ```bash
-pnpm run format:check
-pnpm run typecheck
-pnpm run test
+npm run format:check
+npm run typecheck
+npm run test
+npm run build
+npm pack --dry-run
 ```
 
 Do NOT run the root formatter — it rewrites sibling packages. Do not modify or
